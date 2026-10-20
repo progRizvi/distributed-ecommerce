@@ -1,0 +1,6 @@
+services:
+  elasticsearch:
+    deploy:
+      resources:
+        limits:
+          memory: 1g

@@ -1,0 +1,9 @@
+services:
+  app:
+    build:
+      target: dev
+    env_file: ../env/.env.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../../src:/app/src

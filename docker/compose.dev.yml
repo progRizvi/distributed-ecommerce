@@ -1,0 +1,9 @@
+# Dev: each service's base file + its dev file (ports open, source mounted).
+name: ecommerce
+
+include:
+  - path: [postgres/compose.yml, postgres/compose.dev.yml]
+  - path: [redis/compose.yml, redis/compose.dev.yml]
+  - path: [elasticsearch/compose.yml, elasticsearch/compose.dev.yml]
+  - path: [app/compose.yml, app/compose.dev.yml]
+  - path: [nginx/compose.yml]

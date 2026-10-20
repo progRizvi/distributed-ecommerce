@@ -1,0 +1,17 @@
+services:
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.0
+    restart: unless-stopped
+    environment:
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+      - ./elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+volumes:
+  elasticsearch_data:

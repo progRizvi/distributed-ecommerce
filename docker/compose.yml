@@ -1,0 +1,11 @@
+# Root file: only lists which service compose files to load (no service config here).
+# Add a new service = create docker/<name>/compose.yml and add one line below.
+# Use pnpm docker:dev or pnpm docker:prod (they load compose.dev.yml / compose.prod.yml).
+name: ecommerce
+
+include:
+  - postgres/compose.yml
+  - redis/compose.yml
+  - elasticsearch/compose.yml
+  - app/compose.yml
+  - nginx/compose.yml

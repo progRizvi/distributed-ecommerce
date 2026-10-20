@@ -14,12 +14,12 @@ const BLOCKED_COMMANDS = [
 ];
 
 const PROTECTED_PATHS = [
-  [/(^|[\/])\.env(\.[^\/]*)?$/i, '.env files'],
+  [/(^|[\\/])\.env(\.[^\\/]*)?$/i, '.env files'],
   [/\.(pem|key|p12|pfx)$/i, 'private key / certificate files'],
-  [/(^|[\/])\.git[\/]/, '.git internals'],
-  [/(^|[\/])id_(rsa|ed25519)/, 'ssh keys'],
+  [/(^|[\\/])\.git[\\/]/, '.git internals'],
+  [/(^|[\\/])id_(rsa|ed25519)/, 'ssh keys'],
 ];
-const ALLOWED_PATHS = [/\.env\.example$/i];
+const ALLOWED_PATHS = [/\.env(\.[^\\/]*)?\.example$/i];
 
 export function check({ command, filePath }) {
   if (command) {

@@ -1,0 +1,5 @@
+cluster.name: ecommerce
+network.host: 0.0.0.0
+discovery.type: single-node
+# Local/dev only. Turn security on for real production.
+xpack.security.enabled: false

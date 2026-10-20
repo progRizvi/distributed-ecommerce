@@ -1,0 +1,9 @@
+# Prod: each service's base file + its prod file. Only nginx is public.
+name: ecommerce
+
+include:
+  - path: [postgres/compose.yml]
+  - path: [redis/compose.yml]
+  - path: [elasticsearch/compose.yml, elasticsearch/compose.prod.yml]
+  - path: [app/compose.yml, app/compose.prod.yml]
+  - path: [nginx/compose.yml, nginx/compose.prod.yml]

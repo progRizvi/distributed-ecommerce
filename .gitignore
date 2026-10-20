@@ -7,6 +7,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+!.env.*.example
 *.pem
 *.key
 *.p12
@@ -46,7 +47,7 @@ temp/
 *.sqlite
 *.sqlite3
 *.db
-data/
+/data/
 dump.rdb
 mongo-data/
 pgdata/
@@ -75,3 +76,7 @@ desktop.ini
 .opencode/node_modules/
 .opencode/auth.json
 graphify-out/
+
+# Other package managers (pnpm only)
+package-lock.json
+yarn.lock

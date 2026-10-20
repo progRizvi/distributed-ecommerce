@@ -5,6 +5,8 @@ Do not duplicate these rules elsewhere. `CLAUDE.md` only imports this file.
 
 ## Project
 - Node.js distributed system. Check `package.json` for scripts before inventing commands.
+- Stack: Node.js, Fastify, TypeScript 7, Oxlint, PostgreSQL, Redis, Elasticsearch, Nginx, Docker, Drizzle ORM.
+- Package manager: **pnpm only**. Never use `npm` or `yarn`; never create `package-lock.json` or `yarn.lock`. Use `pnpm add`, `pnpm install`, `pnpm run`, `pnpm dlx`.
 
 ## Response style (user preference)
 - Language: Banglish (Bangla written in English letters). Code, commands, file names stay in English.
