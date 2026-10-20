@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write",
+        "hooks": [{ "type": "command", "command": "node .agents/hooks/guard.mjs" }]
+      }
+    ]
+  }
+}
