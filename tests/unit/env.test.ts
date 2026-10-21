@@ -6,6 +6,7 @@ const base = {
   REDIS_URL: 'redis://redis:6379',
   ELASTICSEARCH_URL: 'http://elasticsearch:9200',
   JWT_SECRET: 'k3Jx9Qw7Zt2Lm8Vb5Nc1Rd6Hy4Fa0Sg3',
+  COOKIE_SECRET: 'Pw5Yd1Hn8Bv3Xk6Qe9Tz2Ma7Rc4Lf0Uj',
 };
 
 async function loadEnv(overrides: Record<string, string>) {
@@ -33,6 +34,18 @@ describe('env validation', () => {
     await expect(
       loadEnv({ NODE_ENV: 'production', DATABASE_URL: 'postgresql://app:change-me@db:5432/shop' }),
     ).rejects.toThrow(/placeholder/);
+  });
+
+  it('rejects COOKIE_SECRET equal to JWT_SECRET (any environment)', async () => {
+    await expect(
+      loadEnv({ NODE_ENV: 'development', COOKIE_SECRET: base.JWT_SECRET }),
+    ).rejects.toThrow(/different from JWT_SECRET/);
+  });
+
+  it('rejects a placeholder COOKIE_SECRET in production', async () => {
+    await expect(
+      loadEnv({ NODE_ENV: 'production', COOKIE_SECRET: 'change-me-cookie-change-me-cookie-change' }),
+    ).rejects.toThrow(/COOKIE_SECRET/);
   });
 
   it('accepts real values in production', async () => {
