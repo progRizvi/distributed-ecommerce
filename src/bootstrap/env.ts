@@ -13,6 +13,8 @@ const schema = z
     ELASTICSEARCH_URL: z.string().url(),
     JWT_SECRET: z.string().min(32),
     COOKIE_SECRET: z.string().min(32),
+    // Access token lifetime, like 900s, 15m, 1h. Keep it short.
+    JWT_EXPIRES_IN: z.string().regex(/^\d+[smhd]$/, 'use a number plus s, m, h or d (example: 15m)').default('15m'),
     CORS_ORIGIN: z.string().default('http://localhost:5173'),
   })
   .superRefine((cfg, ctx) => {
