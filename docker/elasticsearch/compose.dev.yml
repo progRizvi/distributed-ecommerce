@@ -1,4 +1,4 @@
 services:
   elasticsearch:
     ports:
-      - "9200:9200"
+      - "127.0.0.1:9200:9200"
