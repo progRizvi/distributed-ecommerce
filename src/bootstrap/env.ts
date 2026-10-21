@@ -15,6 +15,9 @@ const schema = z
     COOKIE_SECRET: z.string().min(32),
     // Access token lifetime, like 900s, 15m, 1h. Keep it short.
     JWT_EXPIRES_IN: z.string().regex(/^\d+[smhd]$/, 'use a number plus s, m, h or d (example: 15m)').default('15m'),
+    // Which proxies we trust for the real client IP (X-Forwarded-For). Never "true" (anyone could fake an IP).
+    // Default = private networks only (Nginx inside Docker). Use "false" if no proxy is in front.
+    TRUST_PROXY: z.string().default('loopback,linklocal,uniquelocal'),
     CORS_ORIGIN: z.string().default('http://localhost:5173'),
   })
   .superRefine((cfg, ctx) => {
