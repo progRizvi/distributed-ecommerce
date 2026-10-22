@@ -15,6 +15,9 @@ const schema = z
     COOKIE_SECRET: z.string().min(32),
     // Access token lifetime, like 900s, 15m, 1h. Keep it short.
     JWT_EXPIRES_IN: z.string().regex(/^\d+[smhd]$/, 'use a number plus s, m, h or d (example: 15m)').default('15m'),
+    REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+    // bcrypt cost: each +1 doubles the time. 12 is a good default.
+    BCRYPT_COST: z.coerce.number().int().min(10).max(15).default(12),
     // Which proxies we trust for the real client IP (X-Forwarded-For). Never "true" (anyone could fake an IP).
     // Default = private networks only (Nginx inside Docker). Use "false" if no proxy is in front.
     TRUST_PROXY: z.string().default('loopback,linklocal,uniquelocal'),

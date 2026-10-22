@@ -27,8 +27,20 @@ export class UnauthorizedError extends AppError {
   }
 }
 
+export class ForbiddenError extends AppError {
+  constructor(message = 'Forbidden') {
+    super(message, 403, 'FORBIDDEN');
+  }
+}
+
 export class ConflictError extends AppError {
   constructor(message = 'Conflict') {
     super(message, 409, 'CONFLICT');
+  }
+}
+
+export class TooManyRequestsError extends AppError {
+  constructor(message = 'Too many requests') {
+    super(message, 429, 'TOO_MANY_REQUESTS');
   }
 }

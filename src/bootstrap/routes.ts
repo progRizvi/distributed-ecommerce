@@ -10,7 +10,7 @@ import { inventoryRoutes } from '../modules/inventory/index.js';
 import { shippingRoutes } from '../modules/shipping/index.js';
 
 export async function setupRoutes(app: FastifyInstance): Promise<void> {
-  app.get('/health', async () => ({ status: 'ok', uptime: process.uptime() }));
+  app.get('/health', { schema: { tags: ['system'], summary: 'Liveness check' } }, async () => ({ status: 'ok', uptime: process.uptime() }));
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(usersRoutes, { prefix: '/api/users' });
