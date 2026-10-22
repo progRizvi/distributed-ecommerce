@@ -2,7 +2,15 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import type { AuthController } from './auth.controller.js';
-import { authResponseSchema, errorResponseSchema, loginBodySchema, meResponseSchema, registerBodySchema } from './auth.schema.js';
+import {
+  authResponseSchema,
+  emailAvailableBodySchema,
+  emailAvailableResponseSchema,
+  errorResponseSchema,
+  loginBodySchema,
+  meResponseSchema,
+  registerBodySchema,
+} from './auth.schema.js';
 
 // Stricter than the global limit: these endpoints are the ones attackers hit.
 const strictLimit = { rateLimit: { max: 10, timeWindow: '1 minute' } };
@@ -40,6 +48,20 @@ export function createAuthRoutes(controller: AuthController): FastifyPluginAsync
         },
       },
       (req, reply) => controller.login(req.body, req, reply),
+    );
+
+    app.post(
+      '/email-available',
+      {
+        config: strictLimit,
+        schema: {
+          tags: ['auth'],
+          summary: 'Is this email free? (a hint for the sign-up form, register still checks again)',
+          body: emailAvailableBodySchema,
+          response: { 200: emailAvailableResponseSchema, 400: errorResponseSchema, 429: errorResponseSchema },
+        },
+      },
+      (req) => controller.emailAvailable(req.body.email),
     );
 
     app.post(

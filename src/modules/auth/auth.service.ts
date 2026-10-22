@@ -81,6 +81,11 @@ export function createAuthService({ users, repo, hasher, tokens, throttle, event
       return startSession(user, ctx);
     },
 
+    // Only a hint for the sign-up form. Register still decides for real (unique index).
+    async emailAvailable(email: string): Promise<boolean> {
+      return users.isEmailAvailable(email);
+    },
+
     async refresh(refreshToken: string, ctx: RequestContext): Promise<AuthSession> {
       const record = await repo.findByHash(tokens.hashRefreshToken(refreshToken));
       if (!record) throw new UnauthorizedError('Invalid refresh token');

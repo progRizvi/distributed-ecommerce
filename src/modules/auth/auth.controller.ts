@@ -60,6 +60,10 @@ export function createAuthController({ service, secureCookies }: AuthControllerD
       return toBody(session);
     },
 
+    async emailAvailable(email: string) {
+      return { available: await service.emailAvailable(email) };
+    },
+
     async refresh(req: FastifyRequest, reply: FastifyReply) {
       const token = readRefreshToken(req);
       if (!token) throw new UnauthorizedError('Invalid refresh token');

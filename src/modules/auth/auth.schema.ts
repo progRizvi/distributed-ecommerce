@@ -19,6 +19,10 @@ export const loginBodySchema = z.object({
   password: z.string().min(1).max(128),
 });
 
+// POST (not GET) so the email does not end up in URLs and access logs.
+export const emailAvailableBodySchema = z.object({ email: z.email().max(254) });
+export const emailAvailableResponseSchema = z.object({ available: z.boolean() });
+
 export const authResponseSchema = z.object({
   user: publicUserSchema,
   accessToken: z.string(),

@@ -18,6 +18,11 @@ const schema = z
     REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
     // bcrypt cost: each +1 doubles the time. 12 is a good default.
     BCRYPT_COST: z.coerce.number().int().min(10).max(15).default(12),
+    // Bloom filter of registered emails (used by the "email available?" check).
+    // 10M emails at 1% false positives = about 12 MB in Redis. Max 400M (Redis bitmap limit).
+    // If you change these, run: pnpm bloom:rebuild
+    BLOOM_EXPECTED_ITEMS: z.coerce.number().int().min(1000).max(400_000_000).default(10_000_000),
+    BLOOM_FALSE_POSITIVE_RATE: z.coerce.number().min(0.0001).max(0.1).default(0.01),
     // Which proxies we trust for the real client IP (X-Forwarded-For). Never "true" (anyone could fake an IP).
     // Default = private networks only (Nginx inside Docker). Use "false" if no proxy is in front.
     TRUST_PROXY: z.string().default('loopback,linklocal,uniquelocal'),

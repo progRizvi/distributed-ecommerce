@@ -17,6 +17,13 @@ export function createFakeUsersRepo(): UsersRepository & { rows: User[] } {
     async findById(id) {
       return rows.find((u) => u.id === id);
     },
+    async listEmails(afterId, limit) {
+      return [...rows]
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .filter((u) => !afterId || u.id > afterId)
+        .slice(0, limit)
+        .map((u) => ({ id: u.id, email: u.email }));
+    },
     async create(input: NewUser) {
       // Same behaviour as the real unique index.
       if (rows.some((u) => u.email.toLowerCase() === input.email.toLowerCase())) {
