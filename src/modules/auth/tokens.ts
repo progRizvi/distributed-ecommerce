@@ -16,22 +16,28 @@ export function hashRefreshToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
-export function createTokenService({ signAccess, accessTtlSeconds, refreshTtlSeconds }: TokenServiceDeps) {
-  return {
-    accessTtlSeconds,
+export class TokenService {
+  readonly accessTtlSeconds: number;
+  private readonly signAccess: (payload: AccessTokenPayload) => string;
+  private readonly refreshTtlSeconds: number;
 
-    issueAccessToken(user: { id: string; role: Role }): string {
-      return signAccess({ sub: user.id, role: user.role });
-    },
+  constructor({ signAccess, accessTtlSeconds, refreshTtlSeconds }: TokenServiceDeps) {
+    this.signAccess = signAccess;
+    this.accessTtlSeconds = accessTtlSeconds;
+    this.refreshTtlSeconds = refreshTtlSeconds;
+  }
 
-    // 256 bits of randomness. Only the sha256 is stored in the database.
-    generateRefreshToken(now = new Date()): { token: string; hash: string; expiresAt: Date } {
-      const token = randomBytes(32).toString('base64url');
-      return { token, hash: hashRefreshToken(token), expiresAt: new Date(now.getTime() + refreshTtlSeconds * 1000) };
-    },
+  issueAccessToken(user: { id: string; role: Role }): string {
+    return this.signAccess({ sub: user.id, role: user.role });
+  }
 
-    hashRefreshToken,
-  };
+  // 256 bits of randomness. Only the sha256 is stored in the database.
+  generateRefreshToken(now = new Date()): { token: string; hash: string; expiresAt: Date } {
+    const token = randomBytes(32).toString('base64url');
+    return { token, hash: hashRefreshToken(token), expiresAt: new Date(now.getTime() + this.refreshTtlSeconds * 1000) };
+  }
+
+  hashRefreshToken(token: string): string {
+    return hashRefreshToken(token);
+  }
 }
-
-export type TokenService = ReturnType<typeof createTokenService>;

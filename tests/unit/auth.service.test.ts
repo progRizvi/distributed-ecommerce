@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createAuthService } from '../../src/modules/auth/auth.service.js';
-import { createTokenService } from '../../src/modules/auth/tokens.js';
-import { createUsersService } from '../../src/modules/users/users.service.js';
+import { AuthService } from '../../src/modules/auth/auth.service.js';
+import { TokenService } from '../../src/modules/auth/tokens.js';
+import { UsersService } from '../../src/modules/users/users.service.js';
 import { ConflictError, TooManyRequestsError, UnauthorizedError } from '../../src/shared/errors/app-error.js';
-import { createEventBus } from '../../src/shared/events/event-bus.js';
+import { InMemoryEventBus } from '../../src/shared/events/event-bus.js';
 import { createFakeAuthRepo, createFakeHasher, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 
 const ctx = { ip: '203.0.113.9', userAgent: 'vitest' };
@@ -14,17 +14,17 @@ function setup(options: { now?: () => Date } = {}) {
   const hasher = createFakeHasher();
   const throttle = createFakeThrottle(5);
   const registered: unknown[] = [];
-  const events = createEventBus();
+  const events = new InMemoryEventBus();
   events.on('user.registered', (p) => {
     registered.push(p);
   });
-  const tokens = createTokenService({
+  const tokens = new TokenService({
     signAccess: (p) => `access.${p.sub}.${p.role}`,
     accessTtlSeconds: 900,
     refreshTtlSeconds: 3600,
   });
-  const service = createAuthService({
-    users: createUsersService({ repo: usersRepo }),
+  const service = new AuthService({
+    users: new UsersService({ repo: usersRepo }),
     repo: authRepo,
     hasher,
     tokens,

@@ -12,12 +12,12 @@ describe('OpenAPI document', () => {
     const { setupAuth } = await import('../../src/bootstrap/auth.js');
     const { setupCookie } = await import('../../src/bootstrap/cookie.js');
     const { setupSwagger } = await import('../../src/bootstrap/swagger.js');
-    const { createAuthController } = await import('../../src/modules/auth/auth.controller.js');
+    const { AuthController } = await import('../../src/modules/auth/auth.controller.js');
     const { createAuthRoutes } = await import('../../src/modules/auth/auth.routes.js');
-    const { createAuthService } = await import('../../src/modules/auth/auth.service.js');
-    const { createTokenService } = await import('../../src/modules/auth/tokens.js');
-    const { createUsersService } = await import('../../src/modules/users/users.service.js');
-    const { createEventBus } = await import('../../src/shared/events/event-bus.js');
+    const { AuthService } = await import('../../src/modules/auth/auth.service.js');
+    const { TokenService } = await import('../../src/modules/auth/tokens.js');
+    const { UsersService } = await import('../../src/modules/users/users.service.js');
+    const { InMemoryEventBus } = await import('../../src/shared/events/event-bus.js');
 
     const app = Fastify();
     app.setValidatorCompiler(validatorCompiler);
@@ -25,15 +25,15 @@ describe('OpenAPI document', () => {
     await setupCookie(app);
     await setupAuth(app);
     await setupSwagger(app);
-    const service = createAuthService({
-      users: createUsersService({ repo: createFakeUsersRepo() }),
+    const service = new AuthService({
+      users: new UsersService({ repo: createFakeUsersRepo() }),
       repo: createFakeAuthRepo(),
       hasher: createFakeHasher(),
-      tokens: createTokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
+      tokens: new TokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
       throttle: createFakeThrottle(),
-      events: createEventBus(),
+      events: new InMemoryEventBus(),
     });
-    await app.register(createAuthRoutes(createAuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
+    await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
     await app.ready();
 
     const res = await app.inject('/docs/json');

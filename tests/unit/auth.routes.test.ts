@@ -10,12 +10,12 @@ async function buildTestApp() {
   const { setupAuth } = await import('../../src/bootstrap/auth.js');
   const { setupCookie } = await import('../../src/bootstrap/cookie.js');
   const { setupErrorHandler } = await import('../../src/bootstrap/error-handler.js');
-  const { createAuthController } = await import('../../src/modules/auth/auth.controller.js');
+  const { AuthController } = await import('../../src/modules/auth/auth.controller.js');
   const { createAuthRoutes } = await import('../../src/modules/auth/auth.routes.js');
-  const { createAuthService } = await import('../../src/modules/auth/auth.service.js');
-  const { createTokenService } = await import('../../src/modules/auth/tokens.js');
-  const { createUsersService } = await import('../../src/modules/users/users.service.js');
-  const { createEventBus } = await import('../../src/shared/events/event-bus.js');
+  const { AuthService } = await import('../../src/modules/auth/auth.service.js');
+  const { TokenService } = await import('../../src/modules/auth/tokens.js');
+  const { UsersService } = await import('../../src/modules/users/users.service.js');
+  const { InMemoryEventBus } = await import('../../src/shared/events/event-bus.js');
 
   const app = Fastify();
   app.setValidatorCompiler(validatorCompiler);
@@ -25,15 +25,15 @@ async function buildTestApp() {
   setupErrorHandler(app);
 
   const usersRepo = createFakeUsersRepo();
-  const service = createAuthService({
-    users: createUsersService({ repo: usersRepo }),
+  const service = new AuthService({
+    users: new UsersService({ repo: usersRepo }),
     repo: createFakeAuthRepo(),
     hasher: createFakeHasher(),
-    tokens: createTokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
+    tokens: new TokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
     throttle: createFakeThrottle(5),
-    events: createEventBus(),
+    events: new InMemoryEventBus(),
   });
-  await app.register(createAuthRoutes(createAuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
+  await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
   app.get('/admin-only', { onRequest: [app.requireRole('admin')] }, async () => ({ ok: true }));
   await app.ready();
   return { app, usersRepo };

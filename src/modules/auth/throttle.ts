@@ -20,22 +20,34 @@ export interface ThrottleOptions {
   windowSeconds?: number;
 }
 
-export function createRedisLoginThrottle(store: CounterStore, options: ThrottleOptions = {}): LoginThrottle {
-  const maxFailures = options.maxFailures ?? 5;
-  const windowSeconds = options.windowSeconds ?? 15 * 60;
-  // Hash the key so Redis never holds a plain email address.
-  const redisKey = (key: string) => `auth:login-fail:${createHash('sha256').update(key).digest('hex')}`;
+export class RedisLoginThrottle implements LoginThrottle {
+  private readonly maxFailures: number;
+  private readonly windowSeconds: number;
 
-  return {
-    async isBlocked(key) {
-      return Number((await store.get(redisKey(key))) ?? 0) >= maxFailures;
-    },
-    async recordFailure(key) {
-      const count = await store.incr(redisKey(key));
-      if (count === 1) await store.expire(redisKey(key), windowSeconds);
-    },
-    async reset(key) {
-      await store.del(redisKey(key));
-    },
-  };
+  constructor(
+    private readonly store: CounterStore,
+    options: ThrottleOptions = {},
+  ) {
+    this.maxFailures = options.maxFailures ?? 5;
+    this.windowSeconds = options.windowSeconds ?? 15 * 60;
+  }
+
+  // Hash the key so Redis never holds a plain email address.
+  private redisKey(key: string): string {
+    return `auth:login-fail:${createHash('sha256').update(key).digest('hex')}`;
+  }
+
+  async isBlocked(key: string): Promise<boolean> {
+    return Number((await this.store.get(this.redisKey(key))) ?? 0) >= this.maxFailures;
+  }
+
+  async recordFailure(key: string): Promise<void> {
+    const redisKey = this.redisKey(key);
+    const count = await this.store.incr(redisKey);
+    if (count === 1) await this.store.expire(redisKey, this.windowSeconds);
+  }
+
+  async reset(key: string): Promise<void> {
+    await this.store.del(this.redisKey(key));
+  }
 }

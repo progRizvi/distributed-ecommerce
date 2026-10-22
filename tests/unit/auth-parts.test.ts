@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createBcryptHasher } from '../../src/modules/auth/password.js';
-import { createRedisLoginThrottle, type CounterStore } from '../../src/modules/auth/throttle.js';
-import { createTokenService } from '../../src/modules/auth/tokens.js';
+import { BcryptHasher } from '../../src/modules/auth/password.js';
+import { RedisLoginThrottle, type CounterStore } from '../../src/modules/auth/throttle.js';
+import { TokenService } from '../../src/modules/auth/tokens.js';
 import { normalizeEmail } from '../../src/modules/users/users.service.js';
-import { createEventBus } from '../../src/shared/events/event-bus.js';
+import { InMemoryEventBus } from '../../src/shared/events/event-bus.js';
 import { durationToSeconds } from '../../src/shared/utils/duration.js';
 
 describe('durationToSeconds', () => {
@@ -20,7 +20,7 @@ describe('durationToSeconds', () => {
 });
 
 describe('bcrypt hasher', () => {
-  const hasher = createBcryptHasher(4); // low cost = fast tests
+  const hasher = new BcryptHasher(4); // low cost = fast tests
   it('hashes and verifies', async () => {
     const hash = await hasher.hash('correct horse');
     expect(hash).not.toContain('correct horse');
@@ -40,7 +40,7 @@ describe('bcrypt hasher', () => {
 });
 
 describe('token service', () => {
-  const tokens = createTokenService({ signAccess: (p) => `${p.sub}:${p.role}`, accessTtlSeconds: 900, refreshTtlSeconds: 3600 });
+  const tokens = new TokenService({ signAccess: (p) => `${p.sub}:${p.role}`, accessTtlSeconds: 900, refreshTtlSeconds: 3600 });
   it('makes unique, long refresh tokens and stores only their hash', () => {
     const a = tokens.generateRefreshToken();
     const b = tokens.generateRefreshToken();
@@ -83,7 +83,7 @@ describe('redis login throttle', () => {
 
   it('blocks at the limit, sets a TTL once, and resets', async () => {
     const store = fakeStore();
-    const throttle = createRedisLoginThrottle(store, { maxFailures: 3, windowSeconds: 60 });
+    const throttle = new RedisLoginThrottle(store, { maxFailures: 3, windowSeconds: 60 });
     expect(await throttle.isBlocked('k')).toBe(false);
     await throttle.recordFailure('k');
     await throttle.recordFailure('k');
@@ -97,7 +97,7 @@ describe('redis login throttle', () => {
 
   it('never puts the plain email in the Redis key', async () => {
     const store = fakeStore();
-    const throttle = createRedisLoginThrottle(store);
+    const throttle = new RedisLoginThrottle(store);
     await throttle.recordFailure('1.2.3.4:secret@person.com');
     expect([...store.data.keys()].join()).not.toContain('person.com');
   });
@@ -115,7 +115,7 @@ describe('normalizeEmail', () => {
 describe('event bus', () => {
   it('a failing listener does not break the emitter and is reported', async () => {
     const errors: unknown[] = [];
-    const bus = createEventBus((e) => errors.push(e));
+    const bus = new InMemoryEventBus((e) => errors.push(e));
     bus.on('user.registered', () => {
       throw new Error('boom');
     });

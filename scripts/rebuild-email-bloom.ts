@@ -7,17 +7,17 @@
 import { redis } from '../src/bootstrap/cache.js';
 import { env } from '../src/bootstrap/env.js';
 import { db, pool } from '../src/db/client.js';
-import { createUsersRepository } from '../src/modules/users/users.repository.js';
-import { createBloomFilter, createRedisBitStore } from '../src/shared/bloom/index.js';
+import { DrizzleUsersRepository } from '../src/modules/users/users.repository.js';
+import { BloomFilter, RedisBitStore } from '../src/shared/bloom/index.js';
 
 const PAGE_SIZE = 5000;
 const options = { name: 'email', expectedItems: env.BLOOM_EXPECTED_ITEMS, falsePositiveRate: env.BLOOM_FALSE_POSITIVE_RATE };
 
 await redis.connect();
-const store = createRedisBitStore(redis);
-const live = createBloomFilter(store, options);
-const building = createBloomFilter(store, options, ':building');
-const repo = createUsersRepository(db);
+const store = new RedisBitStore(redis);
+const live = new BloomFilter(store, options);
+const building = new BloomFilter(store, options, ':building');
+const repo = new DrizzleUsersRepository(db);
 
 console.log(`rebuilding ${live.key} (${live.bits} bits, ${live.hashes} hashes)`);
 

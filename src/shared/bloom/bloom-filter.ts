@@ -39,33 +39,37 @@ export function bloomOffsets(item: string, bits: number, hashes: number): number
   return Array.from({ length: hashes }, (_, i) => (h1 + i * h2) % bits);
 }
 
-export function createBloomFilter(store: BitStore, options: BloomOptions, keySuffix = '') {
-  const { bits, hashes } = bloomSizing(options.expectedItems, options.falsePositiveRate);
-  // Size is part of the key: if you change the settings you get a fresh (empty) filter, never a wrong one.
-  const key = `bloom:${options.name}:m${bits}k${hashes}${keySuffix}`;
+export class BloomFilter {
+  readonly key: string;
+  readonly bits: number;
+  readonly hashes: number;
 
-  return {
-    key,
-    bits,
-    hashes,
+  constructor(
+    private readonly store: BitStore,
+    options: BloomOptions,
+    keySuffix = '',
+  ) {
+    const { bits, hashes } = bloomSizing(options.expectedItems, options.falsePositiveRate);
+    this.bits = bits;
+    this.hashes = hashes;
+    // Size is part of the key: if you change the settings you get a fresh (empty) filter, never a wrong one.
+    this.key = `bloom:${options.name}:m${bits}k${hashes}${keySuffix}`;
+  }
 
-    async add(item: string): Promise<void> {
-      await store.setBits(key, bloomOffsets(item, bits, hashes));
-    },
+  async add(item: string): Promise<void> {
+    await this.store.setBits(this.key, bloomOffsets(item, this.bits, this.hashes));
+  }
 
-    async addMany(items: string[]): Promise<void> {
-      for (let i = 0; i < items.length; i += ADD_CHUNK) {
-        const offsets = items.slice(i, i + ADD_CHUNK).flatMap((item) => bloomOffsets(item, bits, hashes));
-        await store.setBits(key, offsets);
-      }
-    },
+  async addMany(items: string[]): Promise<void> {
+    for (let i = 0; i < items.length; i += ADD_CHUNK) {
+      const offsets = items.slice(i, i + ADD_CHUNK).flatMap((item) => bloomOffsets(item, this.bits, this.hashes));
+      await this.store.setBits(this.key, offsets);
+    }
+  }
 
-    // false = definitely never added. true = maybe added, check the real source.
-    async mightContain(item: string): Promise<boolean> {
-      const found = await store.getBits(key, bloomOffsets(item, bits, hashes));
-      return found.every(Boolean);
-    },
-  };
+  // false = definitely never added. true = maybe added, check the real source.
+  async mightContain(item: string): Promise<boolean> {
+    const found = await this.store.getBits(this.key, bloomOffsets(item, this.bits, this.hashes));
+    return found.every(Boolean);
+  }
 }
-
-export type BloomFilter = ReturnType<typeof createBloomFilter>;

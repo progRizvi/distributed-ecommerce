@@ -1,8 +1,8 @@
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createBloomFilter } from '../../src/shared/bloom/bloom-filter.js';
-import { createUsersService } from '../../src/modules/users/users.service.js';
+import { BloomFilter } from '../../src/shared/bloom/bloom-filter.js';
+import { UsersService } from '../../src/modules/users/users.service.js';
 import { stubTestEnv } from '../helpers/env.js';
 import { createFakeAuthRepo, createFakeHasher, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { createMemoryBitStore } from '../helpers/memory-bit-store.js';
@@ -11,9 +11,9 @@ function setup() {
   const repo = createFakeUsersRepo();
   const findByEmail = vi.spyOn(repo, 'findByEmail');
   const store = createMemoryBitStore();
-  const filter = createBloomFilter(store, { name: 'email', expectedItems: 1000, falsePositiveRate: 0.01 });
+  const filter = new BloomFilter(store, { name: 'email', expectedItems: 1000, falsePositiveRate: 0.01 });
   const errors: unknown[] = [];
-  const users = createUsersService({ repo, emailFilter: filter, onFilterError: (e) => errors.push(e) });
+  const users = new UsersService({ repo, emailFilter: filter, onFilterError: (e) => errors.push(e) });
   return { repo, findByEmail, store, filter, users, errors };
 }
 
@@ -60,7 +60,7 @@ describe('isEmailAvailable with the Bloom filter', () => {
   });
 
   it('works without any filter', async () => {
-    const users = createUsersService({ repo: createFakeUsersRepo() });
+    const users = new UsersService({ repo: createFakeUsersRepo() });
     await users.create({ email: 'a@x.com', passwordHash: 'h' });
     expect(await users.isEmailAvailable('a@x.com')).toBe(false);
     expect(await users.isEmailAvailable('b@x.com')).toBe(true);
@@ -116,11 +116,11 @@ describe('POST /api/auth/email-available', () => {
     const { setupErrorHandler } = await import('../../src/bootstrap/error-handler.js');
     const { setupCookie } = await import('../../src/bootstrap/cookie.js');
     const { setupAuth } = await import('../../src/bootstrap/auth.js');
-    const { createAuthController } = await import('../../src/modules/auth/auth.controller.js');
+    const { AuthController } = await import('../../src/modules/auth/auth.controller.js');
     const { createAuthRoutes } = await import('../../src/modules/auth/auth.routes.js');
-    const { createAuthService } = await import('../../src/modules/auth/auth.service.js');
-    const { createTokenService } = await import('../../src/modules/auth/tokens.js');
-    const { createEventBus } = await import('../../src/shared/events/event-bus.js');
+    const { AuthService } = await import('../../src/modules/auth/auth.service.js');
+    const { TokenService } = await import('../../src/modules/auth/tokens.js');
+    const { InMemoryEventBus } = await import('../../src/shared/events/event-bus.js');
 
     const { users } = setup();
     const app = Fastify();
@@ -129,15 +129,15 @@ describe('POST /api/auth/email-available', () => {
     await setupCookie(app);
     await setupAuth(app);
     setupErrorHandler(app);
-    const service = createAuthService({
+    const service = new AuthService({
       users,
       repo: createFakeAuthRepo(),
       hasher: createFakeHasher(),
-      tokens: createTokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
+      tokens: new TokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
       throttle: createFakeThrottle(),
-      events: createEventBus(),
+      events: new InMemoryEventBus(),
     });
-    await app.register(createAuthRoutes(createAuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
+    await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
     await app.ready();
     return app;
   }

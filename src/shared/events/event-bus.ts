@@ -1,5 +1,5 @@
 // Tiny in-process event bus. Modules announce what happened; others react without being called directly.
-// Later this can be swapped for a message queue without changing the emitters.
+// Later this can be swapped for a message queue (write another class that implements EventBus).
 export interface AppEvents {
   'user.registered': { userId: string; email: string };
 }
@@ -12,20 +12,21 @@ export interface EventBus {
   on<K extends EventName>(event: K, handler: EventHandler<K>): void;
 }
 
-export function createEventBus(onError: (error: unknown, event: EventName) => void = () => {}): EventBus {
-  const handlers = new Map<EventName, EventHandler<never>[]>();
+export class InMemoryEventBus implements EventBus {
+  private readonly handlers = new Map<EventName, EventHandler<never>[]>();
 
-  return {
-    on(event, handler) {
-      handlers.set(event, [...(handlers.get(event) ?? []), handler as EventHandler<never>]);
-    },
-    emit(event, payload) {
-      for (const handler of handlers.get(event) ?? []) {
-        // A failing listener must never break the request that emitted the event.
-        Promise.resolve()
-          .then(() => (handler as EventHandler<typeof event>)(payload))
-          .catch((error: unknown) => onError(error, event));
-      }
-    },
-  };
+  constructor(private readonly onError: (error: unknown, event: EventName) => void = () => {}) {}
+
+  on<K extends EventName>(event: K, handler: EventHandler<K>): void {
+    this.handlers.set(event, [...(this.handlers.get(event) ?? []), handler as unknown as EventHandler<never>]);
+  }
+
+  emit<K extends EventName>(event: K, payload: AppEvents[K]): void {
+    for (const handler of this.handlers.get(event) ?? []) {
+      // A failing listener must never break the request that emitted the event.
+      Promise.resolve()
+        .then(() => (handler as unknown as EventHandler<K>)(payload))
+        .catch((error: unknown) => this.onError(error, event));
+    }
+  }
 }

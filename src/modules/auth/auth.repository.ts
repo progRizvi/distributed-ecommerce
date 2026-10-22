@@ -12,46 +12,46 @@ export interface AuthRepository {
   revokeAllForUser(userId: string): Promise<void>;
 }
 
-// Only this file talks to the refresh_tokens table. Tokens are revoked (marked), never removed.
-export function createAuthRepository(db: Database): AuthRepository {
-  return {
-    async create(input) {
-      const [row] = await db.insert(refreshTokens).values(input).returning();
-      if (!row) throw new Error('Insert returned no row');
-      return row;
-    },
+// Only this class talks to the refresh_tokens table. Tokens are revoked (marked), never removed.
+export class DrizzleAuthRepository implements AuthRepository {
+  constructor(private readonly db: Database) {}
 
-    async findByHash(tokenHash) {
-      const [row] = await db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash)).limit(1);
-      return row;
-    },
+  async create(input: NewRefreshToken): Promise<RefreshTokenRecord> {
+    const [row] = await this.db.insert(refreshTokens).values(input).returning();
+    if (!row) throw new Error('Insert returned no row');
+    return row;
+  }
 
-    async rotate(oldId, next) {
-      return db.transaction(async (tx) => {
-        // "AND revoked_at IS NULL" makes this atomic: only one parallel request can win.
-        const revoked = await tx
-          .update(refreshTokens)
-          .set({ revokedAt: new Date() })
-          .where(and(eq(refreshTokens.id, oldId), isNull(refreshTokens.revokedAt)))
-          .returning({ id: refreshTokens.id });
-        if (revoked.length === 0) return false;
-        await tx.insert(refreshTokens).values(next);
-        return true;
-      });
-    },
+  async findByHash(tokenHash: string): Promise<RefreshTokenRecord | undefined> {
+    const [row] = await this.db.select().from(refreshTokens).where(eq(refreshTokens.tokenHash, tokenHash)).limit(1);
+    return row;
+  }
 
-    async revokeFamily(familyId) {
-      await db
+  async rotate(oldId: string, next: NewRefreshToken): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      // "AND revoked_at IS NULL" makes this atomic: only one parallel request can win.
+      const revoked = await tx
         .update(refreshTokens)
         .set({ revokedAt: new Date() })
-        .where(and(eq(refreshTokens.familyId, familyId), isNull(refreshTokens.revokedAt)));
-    },
+        .where(and(eq(refreshTokens.id, oldId), isNull(refreshTokens.revokedAt)))
+        .returning({ id: refreshTokens.id });
+      if (revoked.length === 0) return false;
+      await tx.insert(refreshTokens).values(next);
+      return true;
+    });
+  }
 
-    async revokeAllForUser(userId) {
-      await db
-        .update(refreshTokens)
-        .set({ revokedAt: new Date() })
-        .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
-    },
-  };
+  async revokeFamily(familyId: string): Promise<void> {
+    await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshTokens.familyId, familyId), isNull(refreshTokens.revokedAt)));
+  }
+
+  async revokeAllForUser(userId: string): Promise<void> {
+    await this.db
+      .update(refreshTokens)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshTokens.userId, userId), isNull(refreshTokens.revokedAt)));
+  }
 }

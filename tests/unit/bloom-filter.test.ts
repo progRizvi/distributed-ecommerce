@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { bloomOffsets, bloomSizing, createBloomFilter } from '../../src/shared/bloom/bloom-filter.js';
-import { createRedisBitStore, type BitPipeline } from '../../src/shared/bloom/redis-bit-store.js';
+import { bloomOffsets, bloomSizing, BloomFilter } from '../../src/shared/bloom/bloom-filter.js';
+import { RedisBitStore, type BitPipeline } from '../../src/shared/bloom/redis-bit-store.js';
 import { createMemoryBitStore } from '../helpers/memory-bit-store.js';
 
 describe('bloomSizing', () => {
@@ -33,12 +33,12 @@ describe('bloom filter', () => {
   const options = { name: 'test', expectedItems: 5000, falsePositiveRate: 0.01 };
 
   it('an empty filter says "definitely not" for everything', async () => {
-    const filter = createBloomFilter(createMemoryBitStore(), options);
+    const filter = new BloomFilter(createMemoryBitStore(), options);
     expect(await filter.mightContain('a@x.com')).toBe(false);
   });
 
   it('never forgets an added item (no false negatives)', async () => {
-    const filter = createBloomFilter(createMemoryBitStore(), options);
+    const filter = new BloomFilter(createMemoryBitStore(), options);
     const items = Array.from({ length: 5000 }, (_, i) => `user${i}@example.com`);
     await filter.addMany(items);
     const missing: string[] = [];
@@ -47,7 +47,7 @@ describe('bloom filter', () => {
   });
 
   it('false positive rate stays near the target', async () => {
-    const filter = createBloomFilter(createMemoryBitStore(), options);
+    const filter = new BloomFilter(createMemoryBitStore(), options);
     await filter.addMany(Array.from({ length: 5000 }, (_, i) => `user${i}@example.com`));
     let falsePositives = 0;
     const trials = 10_000;
@@ -58,7 +58,7 @@ describe('bloom filter', () => {
 
   it('uses one store call per add / per check, and one per 1000 items in addMany', async () => {
     const store = createMemoryBitStore();
-    const filter = createBloomFilter(store, options);
+    const filter = new BloomFilter(store, options);
     await filter.add('a@x.com');
     await filter.mightContain('a@x.com');
     expect(store.calls).toBe(2);
@@ -70,10 +70,10 @@ describe('bloom filter', () => {
 
   it('puts the settings in the key, so changed settings never reuse an old filter', () => {
     const store = createMemoryBitStore();
-    const a = createBloomFilter(store, options);
-    const b = createBloomFilter(store, { ...options, expectedItems: 9000 });
+    const a = new BloomFilter(store, options);
+    const b = new BloomFilter(store, { ...options, expectedItems: 9000 });
     expect(a.key).not.toBe(b.key);
-    expect(createBloomFilter(store, options, ':building').key).toBe(`${a.key}:building`);
+    expect(new BloomFilter(store, options, ':building').key).toBe(`${a.key}:building`);
   });
 });
 
@@ -107,7 +107,7 @@ describe('redis bit store', () => {
 
   it('sends all bits in one pipeline and reads the answers back', async () => {
     const { create, commands, pipelinesCreated } = fakePipeline((command, offset) => (command === 'getbit' ? (offset % 2 === 0 ? 1 : 0) : 1));
-    const store = createRedisBitStore({ pipeline: create, rename: async () => {} });
+    const store = new RedisBitStore({ pipeline: create, rename: async () => {} });
 
     await store.setBits('k', [1, 2, 3]);
     expect(commands).toEqual([
@@ -122,7 +122,7 @@ describe('redis bit store', () => {
   });
 
   it('throws when Redis reports an error for a command', async () => {
-    const store = createRedisBitStore({
+    const store = new RedisBitStore({
       pipeline: () => ({
         setbit() {
           return this;

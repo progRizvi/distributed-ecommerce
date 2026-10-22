@@ -1,8 +1,8 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
 import { afterAll, describe, expect, it } from 'vitest';
-import { createAuthRepository } from '../../src/modules/auth/auth.repository.js';
-import { createUsersRepository } from '../../src/modules/users/users.repository.js';
+import { DrizzleAuthRepository } from '../../src/modules/auth/auth.repository.js';
+import { DrizzleUsersRepository } from '../../src/modules/users/users.repository.js';
 import * as schema from '../../src/db/schema/index.js';
 import { ConflictError } from '../../src/shared/errors/app-error.js';
 import { randomUUID } from 'node:crypto';
@@ -15,8 +15,8 @@ const url = process.env.TEST_DATABASE_URL;
 describe.skipIf(!url)('auth against real Postgres', () => {
   const pool = new Pool({ connectionString: url, max: 20 });
   const db = drizzle(pool, { schema });
-  const users = createUsersRepository(db);
-  const auth = createAuthRepository(db);
+  const users = new DrizzleUsersRepository(db);
+  const auth = new DrizzleAuthRepository(db);
   const unique = () => `it-${randomUUID()}@example.test`;
 
   afterAll(async () => {

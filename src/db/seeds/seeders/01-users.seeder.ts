@@ -1,6 +1,6 @@
 import { db } from '../../client.js';
 import { users } from '../../schema/users.js';
-import { createBcryptHasher } from '../../../modules/auth/password.js';
+import { BcryptHasher } from '../../../modules/auth/password.js';
 import { normalizeEmail } from '../../../modules/users/users.service.js';
 import type { SeedOptions } from '../index.js';
 
@@ -15,7 +15,7 @@ export async function seedUsers(_options: SeedOptions): Promise<void> {
   }
   if (password.length < 12) throw new Error('SEED_ADMIN_PASSWORD must be at least 12 characters');
 
-  const passwordHash = await createBcryptHasher(12).hash(password);
+  const passwordHash = await new BcryptHasher(12).hash(password);
   const inserted = await db
     .insert(users)
     .values({ email: normalizeEmail(email), passwordHash, role: 'admin' })

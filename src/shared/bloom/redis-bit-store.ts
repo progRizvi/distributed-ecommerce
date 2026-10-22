@@ -13,8 +13,26 @@ export interface BitRedis {
 }
 
 // One pipeline = one network round trip, however many bits (keeps to the "no chatty calls" rule).
-export function createRedisBitStore(redis: BitRedis): BitStore & { rename(from: string, to: string): Promise<void> } {
-  async function run(pipeline: BitPipeline): Promise<unknown[]> {
+export class RedisBitStore implements BitStore {
+  constructor(private readonly redis: BitRedis) {}
+
+  async setBits(key: string, offsets: number[]): Promise<void> {
+    const pipeline = this.redis.pipeline();
+    for (const offset of offsets) pipeline.setbit(key, offset, 1);
+    await this.run(pipeline);
+  }
+
+  async getBits(key: string, offsets: number[]): Promise<boolean[]> {
+    const pipeline = this.redis.pipeline();
+    for (const offset of offsets) pipeline.getbit(key, offset);
+    return (await this.run(pipeline)).map((value) => value === 1);
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    await this.redis.rename(from, to);
+  }
+
+  private async run(pipeline: BitPipeline): Promise<unknown[]> {
     const results = await pipeline.exec();
     if (!results) throw new Error('Redis pipeline returned nothing');
     return results.map(([error, value]) => {
@@ -22,22 +40,4 @@ export function createRedisBitStore(redis: BitRedis): BitStore & { rename(from: 
       return value;
     });
   }
-
-  return {
-    async setBits(key, offsets) {
-      const pipeline = redis.pipeline();
-      for (const offset of offsets) pipeline.setbit(key, offset, 1);
-      await run(pipeline);
-    },
-
-    async getBits(key, offsets) {
-      const pipeline = redis.pipeline();
-      for (const offset of offsets) pipeline.getbit(key, offset);
-      return (await run(pipeline)).map((value) => value === 1);
-    },
-
-    async rename(from, to) {
-      await redis.rename(from, to);
-    },
-  };
 }
