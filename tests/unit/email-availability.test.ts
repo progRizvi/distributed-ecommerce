@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BloomFilter } from '../../src/shared/bloom/bloom-filter.js';
 import { UsersService } from '../../src/modules/users/users.service.js';
 import { stubTestEnv } from '../helpers/env.js';
-import { createFakeAuthRepo, createFakeHasher, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { createMemoryBitStore } from '../helpers/memory-bit-store.js';
 
 function setup() {
@@ -127,7 +127,8 @@ describe('POST /api/auth/email-available', () => {
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
     await setupCookie(app);
-    await setupAuth(app);
+    const { revocations } = createFakeRevocations();
+    await setupAuth(app, revocations);
     setupErrorHandler(app);
     const service = new AuthService({
       users,
@@ -135,6 +136,7 @@ describe('POST /api/auth/email-available', () => {
       hasher: createFakeHasher(),
       tokens: new TokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
       throttle: createFakeThrottle(),
+      revocations,
       events: new InMemoryEventBus(),
     });
     await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });

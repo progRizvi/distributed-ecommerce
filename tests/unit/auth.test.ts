@@ -26,7 +26,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe('JWT expiry', () => {
   it('adds an exp claim (default 15m)', async () => {
     const app = await buildAuthApp();
-    const decoded = app.jwt.decode<{ iat: number; exp: number }>(app.jwt.sign({ sub: 'u1', role: 'customer' }));
+    const decoded = app.jwt.decode<{ iat: number; exp: number }>(app.jwt.sign({ sub: 'u1', role: 'customer', sid: 's1' }));
     expect(decoded?.exp).toBeDefined();
     expect((decoded?.exp ?? 0) - (decoded?.iat ?? 0)).toBe(15 * 60);
     await app.close();
@@ -34,14 +34,14 @@ describe('JWT expiry', () => {
 
   it('uses JWT_EXPIRES_IN from config', async () => {
     const app = await buildAuthApp({ JWT_EXPIRES_IN: '1h' });
-    const decoded = app.jwt.decode<{ iat: number; exp: number }>(app.jwt.sign({ sub: 'u1', role: 'customer' }));
+    const decoded = app.jwt.decode<{ iat: number; exp: number }>(app.jwt.sign({ sub: 'u1', role: 'customer', sid: 's1' }));
     expect((decoded?.exp ?? 0) - (decoded?.iat ?? 0)).toBe(3600);
     await app.close();
   });
 
   it('rejects an expired token', async () => {
     const app = await buildAuthApp();
-    const old = app.jwt.sign({ sub: 'u1', role: 'customer' }, { expiresIn: '1s' });
+    const old = app.jwt.sign({ sub: 'u1', role: 'customer', sid: 's1' }, { expiresIn: '1s' });
     await new Promise((r) => setTimeout(r, 2100));
     expect(() => app.jwt.verify(old)).toThrow();
     await app.close();

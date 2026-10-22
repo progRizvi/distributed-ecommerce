@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { RedisTokenRevocations, type RevocationStore } from '../../src/modules/auth/revocations.js';
 import type { AuthRepository } from '../../src/modules/auth/auth.repository.js';
 import type { NewRefreshToken, RefreshTokenRecord } from '../../src/modules/auth/auth.types.js';
 import type { PasswordHasher } from '../../src/modules/auth/password.js';
@@ -114,4 +115,45 @@ export function createFakeThrottle(maxFailures = 5): LoginThrottle & { counts: M
       counts.set(key, 0);
     },
   };
+}
+
+// In-memory stand-in for Redis (SET ... EX and MGET). Ignores expiry, keeps the TTL so tests can check it.
+export function createFakeRevocationStore(): RevocationStore & {
+  data: Map<string, { value: string; ttl: number }>;
+  calls: number;
+  failNext(): void;
+} {
+  const data = new Map<string, { value: string; ttl: number }>();
+  let shouldFail = false;
+  const store = {
+    data,
+    calls: 0,
+    failNext() {
+      shouldFail = true;
+    },
+    async set(key: string, value: string, _mode: 'EX', seconds: number) {
+      store.calls += 1;
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error('redis down');
+      }
+      data.set(key, { value, ttl: seconds });
+    },
+    async mget(...keys: string[]) {
+      store.calls += 1;
+      if (shouldFail) {
+        shouldFail = false;
+        throw new Error('redis down');
+      }
+      return keys.map((key) => data.get(key)?.value ?? null);
+    },
+  };
+  return store;
+}
+
+// Real revocation logic on top of the fake store. `now` can be shifted to place "logout-all" after tokens
+// that were issued in the same second (JWT iat has one-second precision).
+export function createFakeRevocations(now: () => number = () => Date.now()) {
+  const store = createFakeRevocationStore();
+  return { store, revocations: new RedisTokenRevocations(store, now) };
 }

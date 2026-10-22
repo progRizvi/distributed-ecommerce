@@ -7,6 +7,7 @@ import type { PublicUser, User } from '../users/users.types.js';
 import type { AuthRepository } from './auth.repository.js';
 import type { AuthSession, RequestContext } from './auth.types.js';
 import type { PasswordHasher } from './password.js';
+import type { TokenRevocations } from './revocations.js';
 import type { LoginThrottle } from './throttle.js';
 import type { TokenService } from './tokens.js';
 
@@ -16,11 +17,16 @@ export interface AuthServiceDeps {
   hasher: PasswordHasher;
   tokens: TokenService;
   throttle: LoginThrottle;
+  revocations: TokenRevocations;
   events: EventBus;
+  /** Called when the revoke mark could not be written to Redis (the database part still worked). */
+  onRevocationError?: (error: unknown) => void;
   now?: () => Date;
 }
 
 const INVALID_CREDENTIALS = 'Invalid email or password';
+// Revoke marks live a little longer than the access token, to cover clock differences.
+const REVOCATION_MARGIN_SECONDS = 60;
 
 // Facade: routes call these few methods, and never see hashing, tokens or sessions.
 export class AuthService {
@@ -29,7 +35,9 @@ export class AuthService {
   private readonly hasher: PasswordHasher;
   private readonly tokens: TokenService;
   private readonly throttle: LoginThrottle;
+  private readonly revocations: TokenRevocations;
   private readonly events: EventBus;
+  private readonly onRevocationError: (error: unknown) => void;
   private readonly now: () => Date;
   // Used when the email does not exist, so "unknown email" takes as long as "wrong password".
   private readonly dummyHash: Promise<string>;
@@ -40,7 +48,9 @@ export class AuthService {
     this.hasher = deps.hasher;
     this.tokens = deps.tokens;
     this.throttle = deps.throttle;
+    this.revocations = deps.revocations;
     this.events = deps.events;
+    this.onRevocationError = deps.onRevocationError ?? (() => {});
     this.now = deps.now ?? (() => new Date());
     this.dummyHash = deps.hasher.hash(randomUUID());
     this.dummyHash.catch(() => {}); // a failure is reported when login awaits it, not as an unhandled rejection
@@ -84,14 +94,14 @@ export class AuthService {
 
     // An already-used token came back: it may be stolen. Kill the whole login family.
     if (record.revokedAt) {
-      await this.repo.revokeFamily(record.familyId);
+      await this.endSession(record.familyId);
       throw new UnauthorizedError('Invalid refresh token');
     }
     if (record.expiresAt.getTime() <= this.now().getTime()) throw new UnauthorizedError('Refresh token expired');
 
     const user = await this.users.findById(record.userId);
     if (!user || user.status !== 'active') {
-      await this.repo.revokeFamily(record.familyId);
+      await this.endSession(record.familyId);
       throw new UnauthorizedError('Invalid refresh token');
     }
 
@@ -106,20 +116,25 @@ export class AuthService {
     });
     // Lost a race with a parallel refresh using the same token: treat as reuse.
     if (!rotated) {
-      await this.repo.revokeFamily(record.familyId);
+      await this.endSession(record.familyId);
       throw new UnauthorizedError('Invalid refresh token');
     }
-    return this.buildSession(user, next);
+    return this.buildSession(user, next, record.familyId);
   }
 
   // This device only. Always succeeds, even for an unknown token.
   async logout(refreshToken: string): Promise<void> {
     const record = await this.repo.findByHash(this.tokens.hashRefreshToken(refreshToken));
-    if (record) await this.repo.revokeFamily(record.familyId);
+    if (record) await this.endSession(record.familyId);
   }
 
   async logoutAll(userId: string): Promise<void> {
     await this.repo.revokeAllForUser(userId);
+    try {
+      await this.revocations.revokeUser(userId, this.revocationTtl());
+    } catch (error) {
+      this.onRevocationError(error);
+    }
   }
 
   async me(userId: string): Promise<PublicUser> {
@@ -128,31 +143,46 @@ export class AuthService {
     return toPublicUser(user);
   }
 
+  // Ends one login: refresh tokens in the database (must work) and its access tokens in Redis (best effort).
+  private async endSession(familyId: string): Promise<void> {
+    await this.repo.revokeFamily(familyId);
+    try {
+      await this.revocations.revokeSession(familyId, this.revocationTtl());
+    } catch (error) {
+      this.onRevocationError(error);
+    }
+  }
+
+  private revocationTtl(): number {
+    return this.tokens.accessTtlSeconds + REVOCATION_MARGIN_SECONDS;
+  }
+
   private throttleKey(email: string, ctx: RequestContext): string {
     return `${ctx.ip}:${normalizeEmail(email)}`;
   }
 
-  private buildSession(user: User, refresh: { token: string; expiresAt: Date }): AuthSession {
+  private buildSession(user: User, refresh: { token: string; expiresAt: Date }, familyId: string): AuthSession {
     return {
       user: toPublicUser(user),
-      accessToken: this.tokens.issueAccessToken(user),
+      accessToken: this.tokens.issueAccessToken(user, familyId),
       expiresIn: this.tokens.accessTtlSeconds,
       refreshToken: refresh.token,
       refreshExpiresAt: refresh.expiresAt,
     };
   }
 
-  // First token of a new login = new family.
+  // First token of a new login = new family (the family id is also the session id in the access token).
   private async startSession(user: User, ctx: RequestContext): Promise<AuthSession> {
+    const familyId = randomUUID();
     const refresh = this.tokens.generateRefreshToken(this.now());
     await this.repo.create({
       userId: user.id,
       tokenHash: refresh.hash,
-      familyId: randomUUID(),
+      familyId,
       expiresAt: refresh.expiresAt,
       userAgent: ctx.userAgent ?? null,
       ip: ctx.ip,
     });
-    return this.buildSession(user, refresh);
+    return this.buildSession(user, refresh, familyId);
   }
 }

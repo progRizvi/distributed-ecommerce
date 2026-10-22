@@ -4,7 +4,7 @@ import { TokenService } from '../../src/modules/auth/tokens.js';
 import { UsersService } from '../../src/modules/users/users.service.js';
 import { ConflictError, TooManyRequestsError, UnauthorizedError } from '../../src/shared/errors/app-error.js';
 import { InMemoryEventBus } from '../../src/shared/events/event-bus.js';
-import { createFakeAuthRepo, createFakeHasher, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 
 const ctx = { ip: '203.0.113.9', userAgent: 'vitest' };
 
@@ -13,13 +13,15 @@ function setup(options: { now?: () => Date } = {}) {
   const authRepo = createFakeAuthRepo();
   const hasher = createFakeHasher();
   const throttle = createFakeThrottle(5);
+  const { store: revocationStore, revocations } = createFakeRevocations();
+  const revocationErrors: unknown[] = [];
   const registered: unknown[] = [];
   const events = new InMemoryEventBus();
   events.on('user.registered', (p) => {
     registered.push(p);
   });
   const tokens = new TokenService({
-    signAccess: (p) => `access.${p.sub}.${p.role}`,
+    signAccess: (p) => `access.${p.sub}.${p.role}.${p.sid}`,
     accessTtlSeconds: 900,
     refreshTtlSeconds: 3600,
   });
@@ -29,10 +31,12 @@ function setup(options: { now?: () => Date } = {}) {
     hasher,
     tokens,
     throttle,
+    revocations,
+    onRevocationError: (error) => revocationErrors.push(error),
     events,
     ...(options.now ? { now: options.now } : {}),
   });
-  return { service, usersRepo, authRepo, hasher, throttle, tokens, registered };
+  return { service, usersRepo, authRepo, hasher, throttle, tokens, registered, revocationStore, revocationErrors };
 }
 
 describe('register', () => {
@@ -217,6 +221,92 @@ describe('logout', () => {
     await expect(service.refresh(phone.refreshToken, ctx)).rejects.toBeInstanceOf(UnauthorizedError);
     await expect(service.refresh(laptop.refreshToken, ctx)).rejects.toBeInstanceOf(UnauthorizedError);
     await expect(service.refresh(other.refreshToken, ctx)).resolves.toBeDefined();
+  });
+});
+
+describe('access token revocation', () => {
+  const ACCESS_TTL_PLUS_MARGIN = 900 + 60;
+
+  it('the access token carries the session id (= refresh token family), and refresh keeps it', async () => {
+    const { service, authRepo } = setup();
+    const first = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+    const familyId = authRepo.rows[0]!.familyId;
+    expect(first.accessToken.endsWith(`.${familyId}`)).toBe(true);
+
+    const second = await service.refresh(first.refreshToken, ctx);
+    expect(second.accessToken.endsWith(`.${familyId}`)).toBe(true);
+  });
+
+  it('logout marks this session as revoked, with a TTL just over the access token life', async () => {
+    const { service, authRepo, revocationStore } = setup();
+    const session = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+    const familyId = authRepo.rows[0]!.familyId;
+
+    await service.logout(session.refreshToken);
+
+    expect(revocationStore.data.get(`auth:revoked-sid:${familyId}`)).toEqual({ value: '1', ttl: ACCESS_TTL_PLUS_MARGIN });
+  });
+
+  it('logout with an unknown token writes nothing', async () => {
+    const { service, revocationStore } = setup();
+    await service.logout('unknown');
+    expect(revocationStore.data.size).toBe(0);
+  });
+
+  it('logoutAll marks the user as revoked-after-now', async () => {
+    const { service, revocationStore } = setup();
+    const session = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+
+    await service.logoutAll(session.user.id);
+
+    const mark = revocationStore.data.get(`auth:revoked-after:${session.user.id}`);
+    expect(mark?.ttl).toBe(ACCESS_TTL_PLUS_MARGIN);
+    expect(Number(mark?.value)).toBeGreaterThan(1_700_000_000);
+  });
+
+  it('a stolen (reused) refresh token also revokes the access tokens of that session', async () => {
+    const { service, authRepo, revocationStore } = setup();
+    const first = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+    const familyId = authRepo.rows[0]!.familyId;
+    await service.refresh(first.refreshToken, ctx);
+
+    await service.refresh(first.refreshToken, ctx).catch(() => {});
+
+    expect(revocationStore.data.has(`auth:revoked-sid:${familyId}`)).toBe(true);
+  });
+
+  it('a disabled user session is revoked on refresh', async () => {
+    const { service, usersRepo, authRepo, revocationStore } = setup();
+    const first = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+    const familyId = authRepo.rows[0]!.familyId;
+    usersRepo.rows[0]!.status = 'disabled';
+
+    await service.refresh(first.refreshToken, ctx).catch(() => {});
+
+    expect(revocationStore.data.has(`auth:revoked-sid:${familyId}`)).toBe(true);
+  });
+
+  it('if Redis is down, logout still revokes the refresh token and reports the error', async () => {
+    const { service, authRepo, revocationStore, revocationErrors } = setup();
+    const session = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+
+    revocationStore.failNext();
+    await expect(service.logout(session.refreshToken)).resolves.toBeUndefined();
+
+    expect(authRepo.rows.every((r) => r.revokedAt)).toBe(true);
+    expect(revocationErrors).toHaveLength(1);
+    await expect(service.refresh(session.refreshToken, ctx)).rejects.toBeInstanceOf(UnauthorizedError);
+  });
+
+  it('if Redis is down, logoutAll still revokes every refresh token and reports the error', async () => {
+    const { service, authRepo, revocationStore, revocationErrors } = setup();
+    const session = await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+
+    revocationStore.failNext();
+    await expect(service.logoutAll(session.user.id)).resolves.toBeUndefined();
+
+    expect(authRepo.rows.every((r) => r.revokedAt)).toBe(true);
+    expect(revocationErrors).toHaveLength(1);
   });
 });
 

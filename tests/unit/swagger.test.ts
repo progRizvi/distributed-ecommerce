@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createFakeAuthRepo, createFakeHasher, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { stubTestEnv } from '../helpers/env.js';
 
 afterEach(() => vi.unstubAllEnvs());
@@ -23,7 +23,8 @@ describe('OpenAPI document', () => {
     app.setValidatorCompiler(validatorCompiler);
     app.setSerializerCompiler(serializerCompiler);
     await setupCookie(app);
-    await setupAuth(app);
+    const { revocations } = createFakeRevocations();
+    await setupAuth(app, revocations);
     await setupSwagger(app);
     const service = new AuthService({
       users: new UsersService({ repo: createFakeUsersRepo() }),
@@ -31,6 +32,7 @@ describe('OpenAPI document', () => {
       hasher: createFakeHasher(),
       tokens: new TokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
       throttle: createFakeThrottle(),
+      revocations,
       events: new InMemoryEventBus(),
     });
     await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });

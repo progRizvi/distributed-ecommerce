@@ -42,6 +42,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     hasher: new BcryptHasher(env.BCRYPT_COST),
     tokens,
     throttle: new RedisLoginThrottle(redis),
+    revocations: app.revocations, // same instance that `authenticate` reads
+    onRevocationError: (error) => app.log.warn({ err: error }, 'could not write token revoke mark to Redis'),
     events: new InMemoryEventBus((error, event) => app.log.error({ err: error, event }, 'event handler failed')),
   });
   const controller = new AuthController({ service, secureCookies: env.NODE_ENV === 'production' });

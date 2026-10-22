@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createFakeAuthRepo, createFakeHasher, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { stubTestEnv } from '../helpers/env.js';
 
 // Real bootstrap pieces (cookie, jwt, error handler, zod) + real routes/controller/service + fake database.
@@ -21,7 +21,8 @@ async function buildTestApp() {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
   await setupCookie(app);
-  await setupAuth(app);
+  const { store: revocationStore, revocations } = createFakeRevocations(() => Date.now() + 2000); // +2s: logout-all lands after tokens issued in this same second
+  await setupAuth(app, revocations);
   setupErrorHandler(app);
 
   const usersRepo = createFakeUsersRepo();
@@ -31,12 +32,13 @@ async function buildTestApp() {
     hasher: createFakeHasher(),
     tokens: new TokenService({ signAccess: (p) => app.jwt.sign(p), accessTtlSeconds: 900, refreshTtlSeconds: 3600 }),
     throttle: createFakeThrottle(5),
+    revocations,
     events: new InMemoryEventBus(),
   });
   await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
   app.get('/admin-only', { onRequest: [app.requireRole('admin')] }, async () => ({ ok: true }));
   await app.ready();
-  return { app, usersRepo };
+  return { app, usersRepo, revocationStore };
 }
 
 const creds = { email: 'a@x.com', password: 'password123' };
@@ -129,7 +131,7 @@ describe('GET /me and access control', () => {
     const forged = Fastify();
     const jwt = (await import('@fastify/jwt')).default;
     await forged.register(jwt, { secret: 'another-secret-another-secret-another!' });
-    const fake = forged.jwt.sign({ sub: 'x', role: 'admin' });
+    const fake = forged.jwt.sign({ sub: 'x', role: 'admin', sid: 'admin-session' });
     expect((await app.inject({ url: '/api/auth/me', headers: { authorization: `Bearer ${fake}` } })).statusCode).toBe(401);
   });
 
@@ -148,7 +150,7 @@ describe('GET /me and access control', () => {
     expect((await app.inject('/admin-only')).statusCode).toBe(401);
 
     usersRepo.rows[0]!.role = 'admin';
-    const adminToken = app.jwt.sign({ sub: usersRepo.rows[0]!.id, role: 'admin' });
+    const adminToken = app.jwt.sign({ sub: usersRepo.rows[0]!.id, role: 'admin', sid: 'admin-session' });
     const asAdmin = await app.inject({ url: '/admin-only', headers: { authorization: `Bearer ${adminToken}` } });
     expect(asAdmin.statusCode).toBe(200);
   });
@@ -208,5 +210,84 @@ describe('logout', () => {
 
     const after = await app.inject({ method: 'POST', url: '/api/auth/refresh', cookies: { refresh_token: refreshCookie } });
     expect(after.statusCode).toBe(401);
+  });
+});
+
+describe('access token is revoked by logout (not only the refresh token)', () => {
+  const me = (app: Awaited<ReturnType<typeof buildTestApp>>['app'], token: string) =>
+    app.inject({ url: '/api/auth/me', headers: { authorization: `Bearer ${token}` } });
+
+  it('logout: the access token of this device stops working at once', async () => {
+    const { app, body, refreshCookie } = await registered();
+    expect((await me(app, body.accessToken)).statusCode).toBe(200);
+
+    await app.inject({ method: 'POST', url: '/api/auth/logout', cookies: { refresh_token: refreshCookie } });
+
+    expect((await me(app, body.accessToken)).statusCode).toBe(401);
+  });
+
+  it('logout: another device of the same user keeps working', async () => {
+    const { app, body, refreshCookie } = await registered();
+    const otherDevice = (await app.inject({ method: 'POST', url: '/api/auth/login', payload: creds })).json();
+
+    await app.inject({ method: 'POST', url: '/api/auth/logout', cookies: { refresh_token: refreshCookie } });
+
+    expect((await me(app, body.accessToken)).statusCode).toBe(401);
+    expect((await me(app, otherDevice.accessToken)).statusCode).toBe(200);
+  });
+
+  it('logout-all: the access tokens of every device stop working', async () => {
+    const { app, body } = await registered();
+    const otherDevice = (await app.inject({ method: 'POST', url: '/api/auth/login', payload: creds })).json();
+
+    const out = await app.inject({ method: 'POST', url: '/api/auth/logout-all', headers: { authorization: `Bearer ${body.accessToken}` } });
+    expect(out.statusCode).toBe(204);
+
+    expect((await me(app, body.accessToken)).statusCode).toBe(401);
+    expect((await me(app, otherDevice.accessToken)).statusCode).toBe(401);
+  });
+
+  it("logout-all does not affect another user's token", async () => {
+    const { app, body } = await registered();
+    const other = (await app.inject({ method: 'POST', url: '/api/auth/register', payload: { email: 'b@x.com', password: 'password123' } })).json();
+
+    await app.inject({ method: 'POST', url: '/api/auth/logout-all', headers: { authorization: `Bearer ${body.accessToken}` } });
+
+    expect((await me(app, other.accessToken)).statusCode).toBe(200);
+  });
+
+  it('a stolen refresh token being replayed also kills the access token of that session', async () => {
+    const { app, body, refreshCookie } = await registered();
+    await app.inject({ method: 'POST', url: '/api/auth/refresh', cookies: { refresh_token: refreshCookie } });
+
+    await app.inject({ method: 'POST', url: '/api/auth/refresh', cookies: { refresh_token: refreshCookie } }); // replay
+
+    expect((await me(app, body.accessToken)).statusCode).toBe(401);
+  });
+
+  it('requireRole also honours revocation', async () => {
+    const { app, usersRepo, revocationStore } = await registered();
+    usersRepo.rows[0]!.role = 'admin';
+    const token = app.jwt.sign({ sub: usersRepo.rows[0]!.id, role: 'admin', sid: 'admin-session' });
+    expect((await app.inject({ url: '/admin-only', headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(200);
+
+    revocationStore.data.set('auth:revoked-sid:admin-session', { value: '1', ttl: 960 });
+
+    expect((await app.inject({ url: '/admin-only', headers: { authorization: `Bearer ${token}` } })).statusCode).toBe(401);
+  });
+
+  it('if Redis is down the token is still accepted (fail open), not a 500', async () => {
+    const { app, body, revocationStore } = await registered();
+    revocationStore.failNext();
+    const res = await me(app, body.accessToken);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('if Redis is down, logout still works (204) and the refresh cookie is dead', async () => {
+    const { app, refreshCookie, revocationStore } = await registered();
+    revocationStore.failNext();
+    const out = await app.inject({ method: 'POST', url: '/api/auth/logout', cookies: { refresh_token: refreshCookie } });
+    expect(out.statusCode).toBe(204);
+    expect((await app.inject({ method: 'POST', url: '/api/auth/refresh', cookies: { refresh_token: refreshCookie } })).statusCode).toBe(401);
   });
 });

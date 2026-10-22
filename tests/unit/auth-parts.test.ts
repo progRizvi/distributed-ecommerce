@@ -40,7 +40,7 @@ describe('bcrypt hasher', () => {
 });
 
 describe('token service', () => {
-  const tokens = new TokenService({ signAccess: (p) => `${p.sub}:${p.role}`, accessTtlSeconds: 900, refreshTtlSeconds: 3600 });
+  const tokens = new TokenService({ signAccess: (p) => `${p.sub}:${p.role}:${p.sid}`, accessTtlSeconds: 900, refreshTtlSeconds: 3600 });
   it('makes unique, long refresh tokens and stores only their hash', () => {
     const a = tokens.generateRefreshToken();
     const b = tokens.generateRefreshToken();
@@ -54,7 +54,7 @@ describe('token service', () => {
     expect(tokens.generateRefreshToken(now).expiresAt.toISOString()).toBe('2030-01-01T01:00:00.000Z');
   });
   it('puts user id and role in the access token', () => {
-    expect(tokens.issueAccessToken({ id: 'u1', role: 'admin' })).toBe('u1:admin');
+    expect(tokens.issueAccessToken({ id: 'u1', role: 'admin' }, 's1')).toBe('u1:admin:s1');
   });
 });
 

@@ -4,6 +4,8 @@ import type { Role } from '../users/users.types.js';
 export interface AccessTokenPayload {
   sub: string;
   role: Role;
+  /** Login session id (= refresh token family). Lets logout kill the access tokens of one device. */
+  sid: string;
 }
 
 export interface TokenServiceDeps {
@@ -27,8 +29,8 @@ export class TokenService {
     this.refreshTtlSeconds = refreshTtlSeconds;
   }
 
-  issueAccessToken(user: { id: string; role: Role }): string {
-    return this.signAccess({ sub: user.id, role: user.role });
+  issueAccessToken(user: { id: string; role: Role }, sid: string): string {
+    return this.signAccess({ sub: user.id, role: user.role, sid });
   }
 
   // 256 bits of randomness. Only the sha256 is stored in the database.
