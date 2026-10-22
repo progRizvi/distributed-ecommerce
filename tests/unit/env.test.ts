@@ -7,6 +7,9 @@ const base = {
   ELASTICSEARCH_URL: 'http://elasticsearch:9200',
   JWT_SECRET: 'k3Jx9Qw7Zt2Lm8Vb5Nc1Rd6Hy4Fa0Sg3',
   COOKIE_SECRET: 'Pw5Yd1Hn8Bv3Xk6Qe9Tz2Ma7Rc4Lf0Uj',
+  MAIL_DRIVER: 'smtp',
+  SMTP_URL: 'smtps://mailer:Xq4wLp9z@smtp.provider.test:465',
+  MAIL_FROM: 'Shop <no-reply@shop.test>',
 };
 
 async function loadEnv(overrides: Record<string, string>) {
@@ -46,6 +49,22 @@ describe('env validation', () => {
     await expect(
       loadEnv({ NODE_ENV: 'production', COOKIE_SECRET: 'change-me-cookie-change-me-cookie-change' }),
     ).rejects.toThrow(/COOKIE_SECRET/);
+  });
+
+  it('rejects the console mail driver in production (no email would ever be sent)', async () => {
+    await expect(loadEnv({ NODE_ENV: 'production', MAIL_DRIVER: 'console' })).rejects.toThrow(/MAIL_DRIVER/);
+  });
+
+  it('allows the console mail driver in development', async () => {
+    const { env } = await loadEnv({ NODE_ENV: 'development', MAIL_DRIVER: 'console' });
+    expect(env.MAIL_DRIVER).toBe('console');
+  });
+
+  it('the smtp driver needs a valid SMTP_URL and a MAIL_FROM', async () => {
+    await expect(loadEnv({ NODE_ENV: 'development', SMTP_URL: '' })).rejects.toThrow(/SMTP_URL/);
+    await expect(loadEnv({ NODE_ENV: 'development', SMTP_URL: 'http://not-smtp.test' })).rejects.toThrow(/SMTP_URL/);
+    await expect(loadEnv({ NODE_ENV: 'development', MAIL_FROM: '' })).rejects.toThrow(/MAIL_FROM/);
+    await expect(loadEnv({ NODE_ENV: 'development', MAIL_FROM: 'a@x.com\r\nBcc: y@x.com' })).rejects.toThrow(/MAIL_FROM/);
   });
 
   it('accepts real values in production', async () => {

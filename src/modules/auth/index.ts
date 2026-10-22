@@ -4,10 +4,12 @@ import { env } from '../../bootstrap/env.js';
 import { db } from '../../db/client.js';
 import { BloomFilter, RedisBitStore } from '../../shared/bloom/index.js';
 import { InMemoryEventBus } from '../../shared/events/event-bus.js';
+import { createMailer } from '../../shared/mail/create-mailer.js';
 import { durationToSeconds } from '../../shared/utils/duration.js';
 import { DrizzleUsersRepository } from '../users/users.repository.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthController } from './auth.controller.js';
+import { registerAuthListeners } from './auth.listeners.js';
 import { DrizzleAuthRepository } from './auth.repository.js';
 import { createAuthRoutes } from './auth.routes.js';
 import { AuthService } from './auth.service.js';
@@ -36,6 +38,17 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     accessTtlSeconds: durationToSeconds(env.JWT_EXPIRES_IN),
     refreshTtlSeconds: env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60,
   });
+  const events = new InMemoryEventBus((error, event) => app.log.error({ err: error, event }, 'event handler failed'));
+  // The strategy is picked from config; auth only sees the Mailer interface.
+  const mailer = createMailer(
+    { driver: env.MAIL_DRIVER, smtpUrl: env.SMTP_URL, from: env.MAIL_FROM },
+    { log: (message) => app.log.info(message) },
+  );
+  registerAuthListeners(events, mailer);
+  // Close SMTP connections on shutdown (Fastify runs this hook when the server closes).
+  app.addHook('onClose', async () => {
+    await mailer.close?.();
+  });
   const service = new AuthService({
     users,
     repo: new DrizzleAuthRepository(db),
@@ -44,7 +57,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     throttle: new RedisLoginThrottle(redis),
     revocations: app.revocations, // same instance that `authenticate` reads
     onRevocationError: (error) => app.log.warn({ err: error }, 'could not write token revoke mark to Redis'),
-    events: new InMemoryEventBus((error, event) => app.log.error({ err: error, event }, 'event handler failed')),
+    events,
   });
   const controller = new AuthController({ service, secureCookies: env.NODE_ENV === 'production' });
 

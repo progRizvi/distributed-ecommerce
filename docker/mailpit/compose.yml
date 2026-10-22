@@ -1,0 +1,15 @@
+# Dev only: a fake mail server. Nothing is delivered to the internet.
+# SMTP on 127.0.0.1:1025, inbox in the browser at http://localhost:8025
+# Pin a version tag here before relying on it in a shared environment.
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

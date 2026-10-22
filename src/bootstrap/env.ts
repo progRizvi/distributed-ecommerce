@@ -23,6 +23,12 @@ const schema = z
     // If you change these, run: pnpm bloom:rebuild
     BLOOM_EXPECTED_ITEMS: z.coerce.number().int().min(1000).max(400_000_000).default(10_000_000),
     BLOOM_FALSE_POSITIVE_RATE: z.coerce.number().min(0.0001).max(0.1).default(0.01),
+    // How emails are sent. "console" prints to the log and sends nothing (dev only). "smtp" really sends.
+    MAIL_DRIVER: z.enum(['console', 'smtp']).default('console'),
+    // smtp://user:pass@host:587  (add ?requireTLS=true in production)
+    SMTP_URL: z.string().optional(),
+    // The From address, like: Shop <no-reply@example.com>
+    MAIL_FROM: z.string().optional(),
     // Which proxies we trust for the real client IP (X-Forwarded-For). Never "true" (anyone could fake an IP).
     // Default = private networks only (Nginx inside Docker). Use "false" if no proxy is in front.
     TRUST_PROXY: z.string().default('loopback,linklocal,uniquelocal'),
@@ -33,7 +39,19 @@ const schema = z
     if (cfg.COOKIE_SECRET === cfg.JWT_SECRET) {
       ctx.addIssue({ code: 'custom', path: ['COOKIE_SECRET'], message: 'COOKIE_SECRET must be different from JWT_SECRET' });
     }
+    if (cfg.MAIL_DRIVER === 'smtp') {
+      if (!cfg.SMTP_URL || !/^smtps?:\/\//.test(cfg.SMTP_URL)) {
+        ctx.addIssue({ code: 'custom', path: ['SMTP_URL'], message: 'SMTP_URL is required for MAIL_DRIVER=smtp and must start with smtp:// or smtps://' });
+      }
+      if (!cfg.MAIL_FROM || /[\r\n]/.test(cfg.MAIL_FROM)) {
+        ctx.addIssue({ code: 'custom', path: ['MAIL_FROM'], message: 'MAIL_FROM is required for MAIL_DRIVER=smtp' });
+      }
+    }
     if (cfg.NODE_ENV !== 'production') return;
+    // The console driver sends nothing: in production that means users never get their emails.
+    if (cfg.MAIL_DRIVER === 'console') {
+      ctx.addIssue({ code: 'custom', path: ['MAIL_DRIVER'], message: 'MAIL_DRIVER=console sends no email, use smtp in production' });
+    }
     // Production must never run with example/placeholder values.
     for (const key of ['JWT_SECRET', 'COOKIE_SECRET', 'DATABASE_URL'] as const) {
       if (PLACEHOLDER.test(cfg[key])) {

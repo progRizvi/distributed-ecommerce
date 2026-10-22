@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { assertValidMail, MailError, type Mail, type Mailer } from '../../src/shared/mail/mailer.js';
+import type { SmtpMessage, SmtpTransport } from '../../src/shared/mail/smtp-mailer.js';
 import { RedisTokenRevocations, type RevocationStore } from '../../src/modules/auth/revocations.js';
 import type { AuthRepository } from '../../src/modules/auth/auth.repository.js';
 import type { NewRefreshToken, RefreshTokenRecord } from '../../src/modules/auth/auth.types.js';
@@ -156,4 +158,40 @@ export function createFakeRevocationStore(): RevocationStore & {
 export function createFakeRevocations(now: () => number = () => Date.now()) {
   const store = createFakeRevocationStore();
   return { store, revocations: new RedisTokenRevocations(store, now) };
+}
+
+// Test strategy for Mailer: keeps the mails in memory. Validates like the real ones do.
+export class FakeMailer implements Mailer {
+  readonly sent: Mail[] = [];
+  private shouldFail = false;
+
+  failNext(): void {
+    this.shouldFail = true;
+  }
+
+  async send(mail: Mail): Promise<void> {
+    assertValidMail(mail);
+    if (this.shouldFail) {
+      this.shouldFail = false;
+      throw new MailError('mail server down');
+    }
+    this.sent.push(mail);
+  }
+}
+
+// Stand-in for the nodemailer transport (what SmtpMailer talks to).
+export class FakeSmtpTransport implements SmtpTransport {
+  readonly sent: SmtpMessage[] = [];
+  closed = false;
+  error: Error | undefined;
+
+  async sendMail(message: SmtpMessage): Promise<unknown> {
+    if (this.error) throw this.error;
+    this.sent.push(message);
+    return {};
+  }
+
+  close(): void {
+    this.closed = true;
+  }
 }
