@@ -15,6 +15,13 @@
       "when": 1793114445834,
       "tag": "0001_true_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793117746685,
+      "tag": "0002_chief_master_mold",
+      "breakpoints": true
     }
   ]
 }

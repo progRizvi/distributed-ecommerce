@@ -130,4 +130,18 @@ describe.skipIf(!url)('BullMQ queue and worker on real Redis', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(sent.sort()).toEqual(['a@x.com', 'b@x.com']);
   });
+
+  it('tells the failed hook which outbox row a job came from (so the row can become dead)', async () => {
+    const { queue, failures } = setup(async () => {
+      throw new PermanentJobError('bad data');
+    });
+
+    await queue.enqueue('send-mail', { ...mail, outboxId: 'row-42' });
+    await queue.enqueue('send-mail', mail);
+
+    await waitFor(() => failures.length >= 2);
+    expect(failures.every((f) => f.final)).toBe(true);
+    expect(failures.filter((f) => f.outboxId === 'row-42')).toHaveLength(1);
+    expect(failures.filter((f) => f.outboxId === undefined)).toHaveLength(1);
+  });
 });

@@ -23,7 +23,7 @@ describe('OutboxRelay', () => {
     for (const [i, job] of queue.jobs.entries()) {
       const row = outbox.rows[i]!;
       expect(job.payload).toMatchObject({ to: row.payload.to, outboxId: row.id });
-      expect(job.options.jobId).toBe(`${row.id}-1`);
+      expect(job.options.jobId).toBe(`${row.id}-0-1`);
       expect(job.options.jobId).not.toContain(':');
     }
   });
@@ -60,7 +60,7 @@ describe('OutboxRelay', () => {
     expect(await relay.tick()).toBe(0);
     now += 31_000; // Redis lost the job, nobody marked the row sent
     expect(await relay.tick()).toBe(1);
-    expect(queue.jobs.map((j) => j.options.jobId)).toEqual([`${outbox.rows[0]!.id}-1`, `${outbox.rows[0]!.id}-2`]);
+    expect(queue.jobs.map((j) => j.options.jobId)).toEqual([`${outbox.rows[0]!.id}-0-1`, `${outbox.rows[0]!.id}-0-2`]);
   });
 
   it('stops redelivering after maxAttempts', async () => {

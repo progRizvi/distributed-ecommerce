@@ -9,7 +9,7 @@ import { createMailer } from '../shared/mail/create-mailer.js';
 import { BullMqQueue } from './bullmq-queue.js';
 import { BullMqWorker } from './bullmq-worker.js';
 import { createJobHandlers } from './handlers.js';
-import { DrizzleOutboxRepository, OutboxRelay, trackInOutbox } from './outbox.js';
+import { deadLetterOnFailure, DrizzleOutboxRepository, OutboxRelay, sanitizeError, trackInOutbox } from './outbox.js';
 
 type Level = 'info' | 'warn' | 'error';
 const log = (level: Level, msg: string, extra: Record<string, unknown> = {}) =>
@@ -21,6 +21,7 @@ const mailer = createMailer(
 );
 
 const outbox = new DrizzleOutboxRepository(db);
+const deadLetter = deadLetterOnFailure(outbox, log);
 
 const worker = new BullMqWorker(
   env.REDIS_URL,
@@ -28,13 +29,16 @@ const worker = new BullMqWorker(
   trackInOutbox(createJobHandlers({ mailer }), outbox),
   {
     onCompleted: (job) => log('info', 'job done', { job: job.id, name: job.name }),
-    onFailed: (job, error) =>
+    onFailed: (job, error) => {
       log(job.final ? 'error' : 'warn', job.final ? 'job failed for good' : 'job failed, will retry', {
         job: job.id,
         name: job.name,
         attempt: `${job.attemptsMade}/${job.maxAttempts}`,
-        error: error.message,
-      }),
+        error: sanitizeError(error.message), // mail servers sometimes repeat the address in the error
+      });
+      // Failed for good: the outbox row becomes `dead` (our dead letter queue). See pnpm outbox:dead.
+      void deadLetter(job, error);
+    },
     onError: (error) => log('error', 'worker error', { error: error.message }),
   },
   { concurrency: 5 },
@@ -44,6 +48,7 @@ const queue = new BullMqQueue(env.REDIS_URL, { onError: (error) => log('warn', '
 const relay = new OutboxRelay(outbox, queue, {
   onRelayed: (count) => log('info', 'outbox rows given to the queue', { count }),
   onError: (error) => log('warn', 'outbox relay failed, will try again', { error: (error as Error).message }),
+  onDead: (count) => log('error', 'jobs moved to the dead letter queue (the queue kept losing them)', { count }),
 });
 relay.start();
 log('info', 'worker started');

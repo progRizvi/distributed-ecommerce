@@ -133,10 +133,10 @@ describe('outbox on real SQL', () => {
     await outbox.add({ name: 'send-mail', payload: mail, dedupeKey: `sent-${(seq += 1)}` });
     const [row] = (await pendingRows()).slice(-1);
     if (!row) throw new Error('expected a row');
-    expect(await outbox.isPending(row.id)).toBe(true);
+    expect(await outbox.isUnsent(row.id)).toBe(true);
     await outbox.markSent(row.id);
     await outbox.markSent(row.id);
-    expect(await outbox.isPending(row.id)).toBe(false);
+    expect(await outbox.isUnsent(row.id)).toBe(false);
     const claimed = await outbox.claim({ ...claimAll, leaseMs: 0, maxAttempts: 1000 });
     expect(claimed.map((r) => r.id)).not.toContain(row.id);
     const [stored] = await db.select().from(schema.outbox).where(eq(schema.outbox.id, row.id));
@@ -174,6 +174,6 @@ describe('outbox on real SQL', () => {
 
     await queue.runAll(trackInOutbox(createJobHandlers({ mailer }), outbox));
     expect(mailer.sent.filter((m) => m.to === e)).toHaveLength(1);
-    expect(await outbox.isPending(stillThere[0]?.id ?? '')).toBe(false);
+    expect(await outbox.isUnsent(stillThere[0]?.id ?? '')).toBe(false);
   });
 });

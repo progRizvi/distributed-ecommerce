@@ -38,6 +38,7 @@ export class BullMqWorker implements RunningWorker {
     this.worker.on('failed', (job, error) => {
       if (!job) return;
       const maxAttempts = job.opts.attempts ?? 1;
+      const outboxId = (job.data as { outboxId?: unknown } | null)?.outboxId;
       hooks.onFailed?.(
         {
           id: job.id,
@@ -45,6 +46,7 @@ export class BullMqWorker implements RunningWorker {
           attemptsMade: job.attemptsMade,
           maxAttempts,
           final: error instanceof UnrecoverableError || job.attemptsMade >= maxAttempts,
+          ...(typeof outboxId === 'string' ? { outboxId } : {}),
         },
         error,
       );

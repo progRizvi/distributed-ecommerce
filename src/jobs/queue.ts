@@ -61,6 +61,8 @@ export interface FailedJobInfo {
   maxAttempts: number;
   /** True when no more retries will happen. */
   final: boolean;
+  /** Set when the job came from the outbox table. */
+  outboxId?: string;
 }
 
 export interface WorkerHooks {

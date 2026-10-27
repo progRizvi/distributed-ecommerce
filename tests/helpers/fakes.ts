@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { assertValidMail, MailError, type Mail, type Mailer } from '../../src/shared/mail/mailer.js';
 import type { SmtpMessage, SmtpTransport } from '../../src/shared/mail/smtp-mailer.js';
 import type { Transactor } from '../../src/db/transactor.js';
-import type { ClaimOptions, NewOutboxEntry, OutboxRepository, OutboxRow } from '../../src/jobs/outbox.js';
+import { sanitizeError, type ClaimOptions, type NewOutboxEntry, type OutboxRepository, type OutboxRow } from '../../src/jobs/outbox.js';
 import type { BulkJob, EnqueueOptions, JobHandlers, JobName, JobPayload, JobQueue } from '../../src/jobs/queue.js';
 import { RedisTokenRevocations, type RevocationStore } from '../../src/modules/auth/revocations.js';
 import type { AuthRepository } from '../../src/modules/auth/auth.repository.js';
@@ -254,19 +254,22 @@ export function createFakeTransactor(): Transactor & { runs: number } {
   return transactor as Transactor & { runs: number };
 }
 
-// In-memory outbox table with the same rules as the real one (lease, max attempts, dedupe key).
-export function createFakeOutbox(now: () => number = () => Date.now()): OutboxRepository & {
-  rows: { id: string; name: JobName; payload: Record<string, unknown>; dedupeKey: string | null; status: 'pending' | 'sent'; attempts: number; enqueuedAt: number | null }[];
-} {
-  const rows: {
-    id: string;
-    name: JobName;
-    payload: Record<string, unknown>;
-    dedupeKey: string | null;
-    status: 'pending' | 'sent';
-    attempts: number;
-    enqueuedAt: number | null;
-  }[] = [];
+// In-memory outbox table with the same rules as the real one (lease, max attempts, dedupe key, dead rows).
+export interface FakeOutboxRow {
+  id: string;
+  name: JobName;
+  payload: Record<string, unknown>;
+  dedupeKey: string | null;
+  status: 'pending' | 'sent' | 'dead';
+  attempts: number;
+  replays: number;
+  enqueuedAt: number | null;
+  lastError: string | null;
+  failedAt: number | null;
+}
+
+export function createFakeOutbox(now: () => number = () => Date.now()): OutboxRepository & { rows: FakeOutboxRow[] } {
+  const rows: FakeOutboxRow[] = [];
   return {
     rows,
     async add(entry: NewOutboxEntry) {
@@ -278,7 +281,10 @@ export function createFakeOutbox(now: () => number = () => Date.now()): OutboxRe
         dedupeKey: entry.dedupeKey ?? null,
         status: 'pending',
         attempts: 0,
+        replays: 0,
         enqueuedAt: null,
+        lastError: null,
+        failedAt: null,
       });
     },
     async claim({ limit, leaseMs, maxAttempts }: ClaimOptions): Promise<OutboxRow[]> {
@@ -289,7 +295,7 @@ export function createFakeOutbox(now: () => number = () => Date.now()): OutboxRe
         r.enqueuedAt = now();
         r.attempts += 1;
       }
-      return due.map((r) => ({ id: r.id, name: r.name, payload: r.payload, attempts: r.attempts }));
+      return due.map((r) => ({ id: r.id, name: r.name, payload: r.payload, attempts: r.attempts, replays: r.replays }));
     },
     async release(ids) {
       for (const r of rows) {
@@ -299,12 +305,33 @@ export function createFakeOutbox(now: () => number = () => Date.now()): OutboxRe
         }
       }
     },
-    async isPending(id) {
-      return rows.find((r) => r.id === id)?.status === 'pending';
+    async isUnsent(id) {
+      const row = rows.find((r) => r.id === id);
+      return row !== undefined && row.status !== 'sent';
     },
     async markSent(id) {
       const row = rows.find((r) => r.id === id);
-      if (row && row.status === 'pending') row.status = 'sent';
+      if (row && row.status !== 'sent') row.status = 'sent';
+    },
+    async markDead(id, error) {
+      const row = rows.find((r) => r.id === id);
+      if (row && row.status === 'pending') {
+        row.status = 'dead';
+        row.lastError = sanitizeError(error);
+        row.failedAt = now();
+      }
+    },
+    async sweepExhausted({ leaseMs, maxAttempts }) {
+      let count = 0;
+      for (const r of rows) {
+        if (r.status === 'pending' && r.attempts >= maxAttempts && r.enqueuedAt !== null && r.enqueuedAt < now() - leaseMs) {
+          r.status = 'dead';
+          r.failedAt = now();
+          r.lastError = `Gave up: the queue lost this job ${maxAttempts} times`;
+          count += 1;
+        }
+      }
+      return count;
     },
   };
 }
