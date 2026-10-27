@@ -15,3 +15,16 @@ export function createRedisRetryStrategy({ baseMs = 100, maxMs = 5_000, random =
     return Math.round(delay / 2 + (random() * delay) / 2);
   };
 }
+
+// Settings for the Redis client the web server shares (rate limit, revoke marks, Bloom filter, login throttle).
+// Goal: when Redis is down, a request finds out FAST and the code can carry on without it.
+export function resilientRedisOptions(options: RetryOptions & { commandTimeoutMs?: number } = {}) {
+  return {
+    // Do not queue commands while disconnected. Without this a request waits for the reconnect loop.
+    enableOfflineQueue: false,
+    // A command that was sent but never answered (Redis frozen) gives up after this long.
+    commandTimeout: options.commandTimeoutMs ?? 2_000,
+    maxRetriesPerRequest: 3,
+    retryStrategy: createRedisRetryStrategy(options),
+  };
+}

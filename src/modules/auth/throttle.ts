@@ -51,3 +51,38 @@ export class RedisLoginThrottle implements LoginThrottle {
     await this.store.del(this.redisKey(key));
   }
 }
+
+// DECORATOR: wraps any LoginThrottle so a Redis failure never blocks a login.
+// While Redis is down there is no lockout for repeated wrong passwords (bcrypt is still slow, and Nginx
+// still limits requests). The alternative, "nobody can log in until Redis is back", is worse.
+export class FailOpenLoginThrottle implements LoginThrottle {
+  constructor(
+    private readonly inner: LoginThrottle,
+    private readonly onError: (error: unknown) => void = () => {},
+  ) {}
+
+  async isBlocked(key: string): Promise<boolean> {
+    try {
+      return await this.inner.isBlocked(key);
+    } catch (error) {
+      this.onError(error);
+      return false;
+    }
+  }
+
+  async recordFailure(key: string): Promise<void> {
+    try {
+      await this.inner.recordFailure(key);
+    } catch (error) {
+      this.onError(error);
+    }
+  }
+
+  async reset(key: string): Promise<void> {
+    try {
+      await this.inner.reset(key);
+    } catch (error) {
+      this.onError(error);
+    }
+  }
+}

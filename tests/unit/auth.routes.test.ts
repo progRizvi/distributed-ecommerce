@@ -293,3 +293,31 @@ describe('access token is revoked by logout (not only the refresh token)', () =>
     expect((await app.inject({ method: 'POST', url: '/api/auth/refresh', cookies: { refresh_token: refreshCookie } })).statusCode).toBe(401);
   });
 });
+
+describe('Cache-Control on auth responses', () => {
+  it('success, error and validation responses are all no-store', async () => {
+    const { app, res, body } = await registered();
+    expect(res.headers['cache-control']).toBe('no-store');
+
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: creds });
+    expect(login.headers['cache-control']).toBe('no-store');
+
+    const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { authorization: `Bearer ${body.accessToken}` } });
+    expect(me.statusCode).toBe(200);
+    expect(me.headers['cache-control']).toBe('no-store');
+
+    const wrong = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { ...creds, password: 'wrong-password' } });
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.headers['cache-control']).toBe('no-store');
+
+    const invalid = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { email: 'nope', password: 'x' } });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.headers['cache-control']).toBe('no-store');
+  });
+
+  it('routes outside /api/auth are not affected', async () => {
+    const { app } = await buildTestApp();
+    const res = await app.inject({ method: 'GET', url: '/admin-only' });
+    expect(res.headers['cache-control']).toBeUndefined();
+  });
+});

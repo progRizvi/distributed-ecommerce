@@ -19,6 +19,11 @@ export function createAuthRoutes(controller: AuthController): FastifyPluginAsync
   return async (instance) => {
     const app = instance.withTypeProvider<ZodTypeProvider>();
 
+    // Tokens and account data must not be kept by browsers or proxies.
+    instance.addHook('onSend', async (_req, reply) => {
+      reply.header('cache-control', 'no-store');
+    });
+
     app.post(
       '/register',
       {

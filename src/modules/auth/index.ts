@@ -14,7 +14,7 @@ import { DrizzleAuthRepository } from './auth.repository.js';
 import { createAuthRoutes } from './auth.routes.js';
 import { AuthService } from './auth.service.js';
 import { BcryptHasher } from './password.js';
-import { RedisLoginThrottle } from './throttle.js';
+import { FailOpenLoginThrottle, RedisLoginThrottle } from './throttle.js';
 import { TokenService } from './tokens.js';
 
 export type { AuthSession, AuthId } from './auth.types.js';
@@ -44,7 +44,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     repo: new DrizzleAuthRepository(db),
     hasher: new BcryptHasher(env.BCRYPT_COST),
     tokens,
-    throttle: new RedisLoginThrottle(redis),
+    throttle: new FailOpenLoginThrottle(new RedisLoginThrottle(redis), (error) =>
+      app.log.warn({ err: error }, 'login throttle unavailable (Redis), letting the login continue'),
+    ),
     revocations: app.revocations, // same instance that `authenticate` reads
     onRevocationError: (error) => app.log.warn({ err: error }, 'could not write token revoke mark to Redis'),
     events,
