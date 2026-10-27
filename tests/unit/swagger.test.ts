@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeOutbox, createFakeTransactor, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { stubTestEnv } from '../helpers/env.js';
 
 afterEach(() => vi.unstubAllEnvs());
@@ -34,6 +34,8 @@ describe('OpenAPI document', () => {
       throttle: createFakeThrottle(),
       revocations,
       events: new InMemoryEventBus(),
+      transactor: createFakeTransactor(),
+      outbox: createFakeOutbox(),
     });
     await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
     await app.ready();

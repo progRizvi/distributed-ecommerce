@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 import { serializerCompiler, validatorCompiler } from 'fastify-type-provider-zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeOutbox, createFakeTransactor, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { stubTestEnv } from '../helpers/env.js';
 
 // Real bootstrap pieces (cookie, jwt, error handler, zod) + real routes/controller/service + fake database.
@@ -34,6 +34,8 @@ async function buildTestApp() {
     throttle: createFakeThrottle(5),
     revocations,
     events: new InMemoryEventBus(),
+    transactor: createFakeTransactor(),
+    outbox: createFakeOutbox(),
   });
   await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
   app.get('/admin-only', { onRequest: [app.requireRole('admin')] }, async () => ({ ok: true }));

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BloomFilter } from '../../src/shared/bloom/bloom-filter.js';
 import { UsersService } from '../../src/modules/users/users.service.js';
 import { stubTestEnv } from '../helpers/env.js';
-import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeOutbox, createFakeTransactor, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 import { createMemoryBitStore } from '../helpers/memory-bit-store.js';
 
 function setup() {
@@ -138,6 +138,8 @@ describe('POST /api/auth/email-available', () => {
       throttle: createFakeThrottle(),
       revocations,
       events: new InMemoryEventBus(),
+      transactor: createFakeTransactor(),
+      outbox: createFakeOutbox(),
     });
     await app.register(createAuthRoutes(new AuthController({ service, secureCookies: false })), { prefix: '/api/auth' });
     await app.ready();

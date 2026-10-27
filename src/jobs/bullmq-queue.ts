@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
 import { createRedisRetryStrategy } from '../shared/redis/retry-strategy.js';
-import type { EnqueueOptions, JobName, JobPayloads, JobQueue } from './queue.js';
+import type { BulkJob, EnqueueOptions, JobName, JobPayload, JobQueue } from './queue.js';
 
 export const QUEUE_NAME = 'ecommerce-jobs';
 
@@ -49,20 +49,29 @@ export class BullMqQueue implements JobQueue {
     this.connection.on('error', onError);
   }
 
-  async enqueue<K extends JobName>(name: K, payload: JobPayloads[K], options: EnqueueOptions = {}): Promise<void> {
-    const add = this.queue.add(name, payload, {
-      ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
-      ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
-    });
+  async enqueue<K extends JobName>(name: K, payload: JobPayload<K>, options: EnqueueOptions = {}): Promise<void> {
+    await this.withTimeout(this.queue.add(name, payload, toJobOptions(options)));
+  }
+
+  async enqueueBulk(jobs: BulkJob[]): Promise<void> {
+    if (jobs.length === 0) return;
+    // One round trip for all of them, not one per job.
+    await this.withTimeout(
+      this.queue.addBulk(jobs.map((job) => ({ name: job.name, data: job.payload, opts: toJobOptions(job) }))),
+    );
+  }
+
+  // Give up after enqueueTimeoutMs, so a Redis outage cannot hang the caller.
+  private async withTimeout(work: Promise<unknown>): Promise<void> {
     let timer: NodeJS.Timeout | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new Error('Job queue is not reachable')), this.enqueueTimeoutMs);
     });
     try {
-      await Promise.race([add, timeout]);
+      await Promise.race([work, timeout]);
     } finally {
       clearTimeout(timer);
-      add.catch(() => {}); // if the timeout won, do not leave an unhandled rejection behind
+      work.catch(() => {}); // if the timeout won, do not leave an unhandled rejection behind
     }
   }
 
@@ -70,4 +79,11 @@ export class BullMqQueue implements JobQueue {
     await this.queue.close().catch(() => {});
     this.connection.disconnect();
   }
+}
+
+function toJobOptions(options: EnqueueOptions): { jobId?: string; delay?: number } {
+  return {
+    ...(options.jobId === undefined ? {} : { jobId: options.jobId }),
+    ...(options.delayMs === undefined ? {} : { delay: options.delayMs }),
+  };
 }

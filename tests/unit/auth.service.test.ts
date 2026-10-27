@@ -4,7 +4,7 @@ import { TokenService } from '../../src/modules/auth/tokens.js';
 import { UsersService } from '../../src/modules/users/users.service.js';
 import { ConflictError, TooManyRequestsError, UnauthorizedError } from '../../src/shared/errors/app-error.js';
 import { InMemoryEventBus } from '../../src/shared/events/event-bus.js';
-import { createFakeAuthRepo, createFakeHasher, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
+import { createFakeAuthRepo, createFakeHasher, createFakeOutbox, createFakeTransactor, createFakeRevocations, createFakeThrottle, createFakeUsersRepo } from '../helpers/fakes.js';
 
 const ctx = { ip: '203.0.113.9', userAgent: 'vitest' };
 
@@ -20,6 +20,8 @@ function setup(options: { now?: () => Date } = {}) {
   events.on('user.registered', (p) => {
     registered.push(p);
   });
+  const transactor = createFakeTransactor();
+  const outbox = createFakeOutbox();
   const tokens = new TokenService({
     signAccess: (p) => `access.${p.sub}.${p.role}.${p.sid}`,
     accessTtlSeconds: 900,
@@ -34,9 +36,11 @@ function setup(options: { now?: () => Date } = {}) {
     revocations,
     onRevocationError: (error) => revocationErrors.push(error),
     events,
+    transactor,
+    outbox,
     ...(options.now ? { now: options.now } : {}),
   });
-  return { service, usersRepo, authRepo, hasher, throttle, tokens, registered, revocationStore, revocationErrors };
+  return { service, outbox, transactor, usersRepo, authRepo, hasher, throttle, tokens, registered, revocationStore, revocationErrors };
 }
 
 describe('register', () => {
@@ -50,6 +54,28 @@ describe('register', () => {
     expect(session.expiresIn).toBe(900);
     expect(JSON.stringify(session)).not.toContain('hashed:');
     expect(usersRepo.rows[0]?.passwordHash).toBe('hashed:password123');
+  });
+
+  it('saves ONE welcome-mail job in the outbox, inside the transaction, for the normalized email', async () => {
+    const { service, outbox, transactor } = setup();
+    const session = await service.register({ email: '  Bob@X.COM ', password: 'password123' }, ctx);
+
+    expect(transactor.runs).toBe(1);
+    expect(outbox.rows).toHaveLength(1);
+    expect(outbox.rows[0]).toMatchObject({
+      name: 'send-mail',
+      status: 'pending',
+      dedupeKey: `welcome-${session.user.id}`,
+      payload: { to: 'bob@x.com', subject: expect.stringMatching(/welcome/i) },
+    });
+    expect(outbox.rows[0]?.dedupeKey).not.toContain(':'); // BullMQ ids cannot contain ":"
+  });
+
+  it('a duplicate email saves no job and starts no session', async () => {
+    const { service, outbox } = setup();
+    await service.register({ email: 'a@x.com', password: 'password123' }, ctx);
+    await expect(service.register({ email: 'a@x.com', password: 'password123' }, ctx)).rejects.toBeInstanceOf(ConflictError);
+    expect(outbox.rows).toHaveLength(1);
   });
 
   it('normalizes the email (trim, case)', async () => {

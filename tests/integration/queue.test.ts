@@ -112,4 +112,22 @@ describe.skipIf(!url)('BullMQ queue and worker on real Redis', () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(calls).toBe(2);
   });
+
+  it('enqueueBulk puts many jobs in at once; a repeated jobId is still ignored', async () => {
+    const sent: string[] = [];
+    const { queue } = setup(async (m) => {
+      sent.push((m as { to: string }).to);
+    });
+
+    await queue.enqueueBulk([
+      { name: 'send-mail', payload: { ...mail, to: 'a@x.com' }, jobId: 'bulk-1' },
+      { name: 'send-mail', payload: { ...mail, to: 'b@x.com' }, jobId: 'bulk-2' },
+      { name: 'send-mail', payload: { ...mail, to: 'a@x.com', outboxId: 'row-1' }, jobId: 'bulk-1' },
+    ]);
+    await queue.enqueueBulk([]); // nothing to do, no error
+
+    await waitFor(() => sent.length >= 2);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(sent.sort()).toEqual(['a@x.com', 'b@x.com']);
+  });
 });

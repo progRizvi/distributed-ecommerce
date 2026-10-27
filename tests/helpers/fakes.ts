@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { assertValidMail, MailError, type Mail, type Mailer } from '../../src/shared/mail/mailer.js';
 import type { SmtpMessage, SmtpTransport } from '../../src/shared/mail/smtp-mailer.js';
-import type { EnqueueOptions, JobHandlers, JobName, JobPayloads, JobQueue } from '../../src/jobs/queue.js';
+import type { Transactor } from '../../src/db/transactor.js';
+import type { ClaimOptions, NewOutboxEntry, OutboxRepository, OutboxRow } from '../../src/jobs/outbox.js';
+import type { BulkJob, EnqueueOptions, JobHandlers, JobName, JobPayload, JobQueue } from '../../src/jobs/queue.js';
 import { RedisTokenRevocations, type RevocationStore } from '../../src/modules/auth/revocations.js';
 import type { AuthRepository } from '../../src/modules/auth/auth.repository.js';
 import type { NewRefreshToken, RefreshTokenRecord } from '../../src/modules/auth/auth.types.js';
@@ -201,6 +203,7 @@ export class FakeSmtpTransport implements SmtpTransport {
 export class InMemoryQueue implements JobQueue {
   readonly jobs: { name: JobName; payload: unknown; options: EnqueueOptions }[] = [];
   closed = false;
+  bulkCalls = 0;
   private readonly ids = new Set<string>();
   private shouldFail = false;
 
@@ -208,7 +211,7 @@ export class InMemoryQueue implements JobQueue {
     this.shouldFail = true;
   }
 
-  async enqueue<K extends JobName>(name: K, payload: JobPayloads[K], options: EnqueueOptions = {}): Promise<void> {
+  async enqueue<K extends JobName>(name: K, payload: JobPayload<K>, options: EnqueueOptions = {}): Promise<void> {
     if (this.shouldFail) {
       this.shouldFail = false;
       throw new Error('queue down');
@@ -220,6 +223,15 @@ export class InMemoryQueue implements JobQueue {
     this.jobs.push({ name, payload, options });
   }
 
+  async enqueueBulk(jobs: BulkJob[]): Promise<void> {
+    if (this.shouldFail) {
+      this.shouldFail = false;
+      throw new Error('queue down');
+    }
+    this.bulkCalls += 1;
+    for (const { name, payload, ...options } of jobs) await this.enqueue(name, payload, options);
+  }
+
   // Plays the worker: runs every stored job through its handler.
   async runAll(handlers: JobHandlers): Promise<void> {
     for (const job of this.jobs) await (handlers[job.name] as (payload: unknown) => Promise<void>)(job.payload);
@@ -228,4 +240,71 @@ export class InMemoryQueue implements JobQueue {
   async close(): Promise<void> {
     this.closed = true;
   }
+}
+
+// No real transaction: it just runs the work. Tests that need real rollback use Postgres (outbox.db.test.ts).
+export function createFakeTransactor(): Transactor & { runs: number } {
+  const transactor = {
+    runs: 0,
+    async run<T>(work: (tx: never) => Promise<T>): Promise<T> {
+      transactor.runs += 1;
+      return work(undefined as never);
+    },
+  };
+  return transactor as Transactor & { runs: number };
+}
+
+// In-memory outbox table with the same rules as the real one (lease, max attempts, dedupe key).
+export function createFakeOutbox(now: () => number = () => Date.now()): OutboxRepository & {
+  rows: { id: string; name: JobName; payload: Record<string, unknown>; dedupeKey: string | null; status: 'pending' | 'sent'; attempts: number; enqueuedAt: number | null }[];
+} {
+  const rows: {
+    id: string;
+    name: JobName;
+    payload: Record<string, unknown>;
+    dedupeKey: string | null;
+    status: 'pending' | 'sent';
+    attempts: number;
+    enqueuedAt: number | null;
+  }[] = [];
+  return {
+    rows,
+    async add(entry: NewOutboxEntry) {
+      if (entry.dedupeKey !== undefined && rows.some((r) => r.dedupeKey === entry.dedupeKey)) return;
+      rows.push({
+        id: randomUUID(),
+        name: entry.name,
+        payload: { ...entry.payload },
+        dedupeKey: entry.dedupeKey ?? null,
+        status: 'pending',
+        attempts: 0,
+        enqueuedAt: null,
+      });
+    },
+    async claim({ limit, leaseMs, maxAttempts }: ClaimOptions): Promise<OutboxRow[]> {
+      const due = rows
+        .filter((r) => r.status === 'pending' && r.attempts < maxAttempts && (r.enqueuedAt === null || r.enqueuedAt < now() - leaseMs))
+        .slice(0, limit);
+      for (const r of due) {
+        r.enqueuedAt = now();
+        r.attempts += 1;
+      }
+      return due.map((r) => ({ id: r.id, name: r.name, payload: r.payload, attempts: r.attempts }));
+    },
+    async release(ids) {
+      for (const r of rows) {
+        if (ids.includes(r.id) && r.status === 'pending') {
+          r.enqueuedAt = null;
+          r.attempts = Math.max(r.attempts - 1, 0);
+        }
+      }
+    },
+    async isPending(id) {
+      return rows.find((r) => r.id === id)?.status === 'pending';
+    },
+    async markSent(id) {
+      const row = rows.find((r) => r.id === id);
+      if (row && row.status === 'pending') row.status = 'sent';
+    },
+  };
 }

@@ -10,6 +10,10 @@ export interface JobPayloads {
 
 export type JobName = keyof JobPayloads;
 
+// What really travels in the queue. `outboxId` is set for jobs that come from the outbox table,
+// so the worker can mark that row as sent when the job is done.
+export type JobPayload<K extends JobName> = JobPayloads[K] & { outboxId?: string };
+
 export interface EnqueueOptions {
   /**
    * Same id twice = one job. Use it so a repeated event does not send the same mail twice.
@@ -19,15 +23,21 @@ export interface EnqueueOptions {
   delayMs?: number;
 }
 
-// Producer side (the web server): put a job in the queue.
+export type BulkJob = {
+  [K in JobName]: { name: K; payload: JobPayload<K> } & EnqueueOptions;
+}[JobName];
+
+// Producer side: put a job in the queue.
 export interface JobQueue {
   /** Resolves when the job is safely stored. Rejects if the queue is not reachable. */
-  enqueue<K extends JobName>(name: K, payload: JobPayloads[K], options?: EnqueueOptions): Promise<void>;
+  enqueue<K extends JobName>(name: K, payload: JobPayload<K>, options?: EnqueueOptions): Promise<void>;
+  /** Many jobs in ONE round trip to the queue. Same rules as enqueue (jobId dedupe). */
+  enqueueBulk(jobs: BulkJob[]): Promise<void>;
   close(): Promise<void>;
 }
 
 // Consumer side (the worker process): what to do for each job.
-export type JobHandler<K extends JobName> = (payload: JobPayloads[K]) => Promise<void>;
+export type JobHandler<K extends JobName> = (payload: JobPayload<K>) => Promise<void>;
 export type JobHandlers = { [K in JobName]: JobHandler<K> };
 
 export interface RunningWorker {

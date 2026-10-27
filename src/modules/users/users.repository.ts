@@ -1,6 +1,7 @@
 import { asc, eq, gt, sql } from 'drizzle-orm';
 import type { Database } from '../../db/client.js';
 import { isUniqueViolation } from '../../db/errors.js';
+import type { Tx } from '../../db/transactor.js';
 import { users } from '../../db/schema/users.js';
 import { ConflictError } from '../../shared/errors/app-error.js';
 import type { NewUser, User } from './users.types.js';
@@ -9,7 +10,8 @@ import type { NewUser, User } from './users.types.js';
 export interface UsersRepository {
   findByEmail(normalizedEmail: string): Promise<User | undefined>;
   findById(id: string): Promise<User | undefined>;
-  create(input: NewUser): Promise<User>;
+  /** Pass `tx` to make the insert part of a bigger transaction. */
+  create(input: NewUser, tx?: Tx): Promise<User>;
   /** Keyset pagination (stable and fast on a huge table). Used to rebuild the email Bloom filter. */
   listEmails(afterId: string | undefined, limit: number): Promise<{ id: string; email: string }[]>;
 }
@@ -38,11 +40,11 @@ export class DrizzleUsersRepository implements UsersRepository {
       .limit(limit);
   }
 
-  async create(input: NewUser): Promise<User> {
+  async create(input: NewUser, tx?: Tx): Promise<User> {
     try {
       // No "does it exist?" query first: two parallel requests would both pass it.
       // The unique index decides, and we turn its error into a clean 409.
-      const [row] = await this.db.insert(users).values(input).returning();
+      const [row] = await (tx ?? this.db).insert(users).values(input).returning();
       if (!row) throw new Error('Insert returned no row');
       return row;
     } catch (error) {

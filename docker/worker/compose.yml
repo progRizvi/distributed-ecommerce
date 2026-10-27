@@ -8,4 +8,5 @@ services:
     # Time to finish running jobs after "docker stop" (the worker waits up to 30s).
     stop_grace_period: 40s
     depends_on:
+      postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

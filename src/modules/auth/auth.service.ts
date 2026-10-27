@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { Transactor } from '../../db/transactor.js';
+import type { OutboxWriter } from '../../jobs/outbox.js';
 import { TooManyRequestsError, UnauthorizedError } from '../../shared/errors/app-error.js';
 import type { EventBus } from '../../shared/events/event-bus.js';
 import { toPublicUser } from '../users/users.mapper.js';
@@ -7,6 +9,7 @@ import type { PublicUser, User } from '../users/users.types.js';
 import type { AuthRepository } from './auth.repository.js';
 import type { AuthSession, RequestContext } from './auth.types.js';
 import type { PasswordHasher } from './password.js';
+import { welcomeMail } from './auth.mails.js';
 import type { TokenRevocations } from './revocations.js';
 import type { LoginThrottle } from './throttle.js';
 import type { TokenService } from './tokens.js';
@@ -19,6 +22,10 @@ export interface AuthServiceDeps {
   throttle: LoginThrottle;
   revocations: TokenRevocations;
   events: EventBus;
+  /** Runs the user insert and the outbox insert as one unit. */
+  transactor: Transactor;
+  /** Jobs saved here are delivered later by the worker, even if Redis is down right now. */
+  outbox: OutboxWriter;
   /** Called when the revoke mark could not be written to Redis (the database part still worked). */
   onRevocationError?: (error: unknown) => void;
   now?: () => Date;
@@ -37,6 +44,8 @@ export class AuthService {
   private readonly throttle: LoginThrottle;
   private readonly revocations: TokenRevocations;
   private readonly events: EventBus;
+  private readonly transactor: Transactor;
+  private readonly outbox: OutboxWriter;
   private readonly onRevocationError: (error: unknown) => void;
   private readonly now: () => Date;
   // Used when the email does not exist, so "unknown email" takes as long as "wrong password".
@@ -50,6 +59,8 @@ export class AuthService {
     this.throttle = deps.throttle;
     this.revocations = deps.revocations;
     this.events = deps.events;
+    this.transactor = deps.transactor;
+    this.outbox = deps.outbox;
     this.onRevocationError = deps.onRevocationError ?? (() => {});
     this.now = deps.now ?? (() => new Date());
     this.dummyHash = deps.hasher.hash(randomUUID());
@@ -59,7 +70,17 @@ export class AuthService {
   async register(input: { email: string; password: string }, ctx: RequestContext): Promise<AuthSession> {
     const passwordHash = await this.hasher.hash(input.password);
     // Duplicate email -> the repository throws ConflictError (409) from the unique index.
-    const user = await this.users.create({ email: input.email, passwordHash });
+    // The user and the welcome mail job are saved together: both exist or neither does.
+    // The mail itself is sent later by the worker (with retries), so a broken mail server or Redis
+    // never breaks registration, and the job is not lost when Redis is down.
+    const user = await this.transactor.run(async (tx) => {
+      const created = await this.users.create({ email: input.email, passwordHash }, tx);
+      await this.outbox.add(
+        { name: 'send-mail', payload: welcomeMail(created.email), dedupeKey: `welcome-${created.id}` },
+        tx,
+      );
+      return created;
+    });
     this.events.emit('user.registered', { userId: user.id, email: user.email });
     return this.startSession(user, ctx);
   }

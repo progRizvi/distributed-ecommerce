@@ -1,11 +1,15 @@
 // The worker process. Run it next to the web server:
 //   pnpm worker          (development, restarts on changes)
 //   pnpm worker:start    (after pnpm build)
-// It takes jobs from the queue and runs them. The web server only puts jobs in.
+// It does two things: the outbox relay moves saved jobs from the database to the queue,
+// and the worker takes jobs from the queue and runs them. The web server only saves jobs (in the database).
 import { env } from '../bootstrap/env.js';
+import { db, pool } from '../db/client.js';
 import { createMailer } from '../shared/mail/create-mailer.js';
+import { BullMqQueue } from './bullmq-queue.js';
 import { BullMqWorker } from './bullmq-worker.js';
 import { createJobHandlers } from './handlers.js';
+import { DrizzleOutboxRepository, OutboxRelay, trackInOutbox } from './outbox.js';
 
 type Level = 'info' | 'warn' | 'error';
 const log = (level: Level, msg: string, extra: Record<string, unknown> = {}) =>
@@ -16,9 +20,12 @@ const mailer = createMailer(
   { log: (message) => log('info', message) },
 );
 
+const outbox = new DrizzleOutboxRepository(db);
+
 const worker = new BullMqWorker(
   env.REDIS_URL,
-  createJobHandlers({ mailer }),
+  // trackInOutbox: after a job from the outbox ran, its row is marked `sent`.
+  trackInOutbox(createJobHandlers({ mailer }), outbox),
   {
     onCompleted: (job) => log('info', 'job done', { job: job.id, name: job.name }),
     onFailed: (job, error) =>
@@ -32,6 +39,13 @@ const worker = new BullMqWorker(
   },
   { concurrency: 5 },
 );
+
+const queue = new BullMqQueue(env.REDIS_URL, { onError: (error) => log('warn', 'job queue error', { error: error.message }) });
+const relay = new OutboxRelay(outbox, queue, {
+  onRelayed: (count) => log('info', 'outbox rows given to the queue', { count }),
+  onError: (error) => log('warn', 'outbox relay failed, will try again', { error: (error as Error).message }),
+});
+relay.start();
 log('info', 'worker started');
 
 let stopping = false;
@@ -43,8 +57,11 @@ async function shutdown(signal: string): Promise<void> {
   const force = setTimeout(() => process.exit(1), 30_000);
   force.unref();
   try {
+    await relay.stop();
     await worker.close();
+    await queue.close();
     await mailer.close?.();
+    await pool.end();
     process.exit(0);
   } catch (error) {
     log('error', 'shutdown failed', { error: (error as Error).message });

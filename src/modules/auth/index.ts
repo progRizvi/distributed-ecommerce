@@ -2,14 +2,14 @@ import type { FastifyPluginAsync } from 'fastify';
 import { redis } from '../../bootstrap/cache.js';
 import { env } from '../../bootstrap/env.js';
 import { db } from '../../db/client.js';
-import { BullMqQueue } from '../../jobs/bullmq-queue.js';
+import { DrizzleTransactor } from '../../db/transactor.js';
+import { DrizzleOutboxRepository } from '../../jobs/outbox.js';
 import { BloomFilter, RedisBitStore } from '../../shared/bloom/index.js';
 import { InMemoryEventBus } from '../../shared/events/event-bus.js';
 import { durationToSeconds } from '../../shared/utils/duration.js';
 import { DrizzleUsersRepository } from '../users/users.repository.js';
 import { UsersService } from '../users/users.service.js';
 import { AuthController } from './auth.controller.js';
-import { registerAuthListeners } from './auth.listeners.js';
 import { DrizzleAuthRepository } from './auth.repository.js';
 import { createAuthRoutes } from './auth.routes.js';
 import { AuthService } from './auth.service.js';
@@ -39,15 +39,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     refreshTtlSeconds: env.REFRESH_TOKEN_TTL_DAYS * 24 * 60 * 60,
   });
   const events = new InMemoryEventBus((error, event) => app.log.error({ err: error, event }, 'event handler failed'));
-  // The strategy is picked from config; auth only sees the Mailer interface.
-  // The web server only puts jobs in the queue. Mails are sent by the worker process (pnpm worker).
-  const queue = new BullMqQueue(env.REDIS_URL, {
-    onError: (error) => app.log.warn({ err: error }, 'job queue error'),
-  });
-  registerAuthListeners(events, queue);
-  app.addHook('onClose', async () => {
-    await queue.close();
-  });
   const service = new AuthService({
     users,
     repo: new DrizzleAuthRepository(db),
@@ -57,6 +48,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     revocations: app.revocations, // same instance that `authenticate` reads
     onRevocationError: (error) => app.log.warn({ err: error }, 'could not write token revoke mark to Redis'),
     events,
+    // The web server never talks to the queue. It saves jobs in the database (outbox, same transaction
+    // as the user); the worker process (pnpm worker) moves them to the queue and sends the mails.
+    transactor: new DrizzleTransactor(db),
+    outbox: new DrizzleOutboxRepository(db),
   });
   const controller = new AuthController({ service, secureCookies: env.NODE_ENV === 'production' });
 

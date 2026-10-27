@@ -1,3 +1,4 @@
+import type { Tx } from '../../db/transactor.js';
 import type { UsersRepository } from './users.repository.js';
 import type { Role, User } from './users.types.js';
 
@@ -38,14 +39,19 @@ export class UsersService {
     return this.repo.findById(id);
   }
 
-  async create(input: { email: string; passwordHash: string; role?: Role }): Promise<User> {
-    const user = await this.repo.create({
-      email: normalizeEmail(input.email),
-      passwordHash: input.passwordHash,
-      role: input.role ?? 'customer',
-    });
+  async create(input: { email: string; passwordHash: string; role?: Role }, tx?: Tx): Promise<User> {
+    const user = await this.repo.create(
+      {
+        email: normalizeEmail(input.email),
+        passwordHash: input.passwordHash,
+        role: input.role ?? 'customer',
+      },
+      tx,
+    );
     // Best effort. If this fails the user still exists; the filter just misses one email,
     // which is harmless here (see isEmailAvailable) and fixed by the next rebuild.
+    // (Inside a transaction that later rolls back, the filter keeps the email: also harmless, it only
+    // means "maybe registered", and the database answers.)
     try {
       await this.emailFilter?.add(user.email);
     } catch (error) {
