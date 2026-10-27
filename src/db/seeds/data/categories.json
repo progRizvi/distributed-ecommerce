@@ -1,1 +1,31 @@
-[]
+[
+  {
+    "name": "Electronics",
+    "slug": "electronics",
+    "description": "Phones, computers and gadgets",
+    "children": [
+      { "name": "Phones", "slug": "phones", "children": [{ "name": "Phone Cases", "slug": "phone-cases" }] },
+      { "name": "Laptops", "slug": "laptops" },
+      { "name": "Headphones", "slug": "headphones" }
+    ]
+  },
+  {
+    "name": "Clothing",
+    "slug": "clothing",
+    "description": "Clothes for every day",
+    "children": [
+      { "name": "Men", "slug": "men" },
+      { "name": "Women", "slug": "women" },
+      { "name": "Kids", "slug": "kids" }
+    ]
+  },
+  {
+    "name": "Home & Kitchen",
+    "slug": "home-and-kitchen",
+    "children": [
+      { "name": "Cookware", "slug": "cookware" },
+      { "name": "Furniture", "slug": "furniture" }
+    ]
+  },
+  { "name": "Books", "slug": "books", "description": "Fiction, non-fiction and textbooks" }
+]

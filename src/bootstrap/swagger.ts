@@ -12,6 +12,7 @@ export async function setupSwagger(app: FastifyInstance): Promise<void> {
       tags: [
         { name: 'system', description: 'Health and status' },
         { name: 'auth', description: 'Register, login, tokens' },
+        { name: 'categories', description: 'Product categories (admins change them, everyone reads)' },
       ],
       components: {
         securitySchemes: {

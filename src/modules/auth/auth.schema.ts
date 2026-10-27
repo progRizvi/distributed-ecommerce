@@ -33,11 +33,7 @@ export const authResponseSchema = z.object({
 
 export const meResponseSchema = z.object({ user: publicUserSchema });
 
-export const errorResponseSchema = z.object({
-  error: z.string(),
-  message: z.string(),
-  details: z.array(z.object({ path: z.string(), message: z.string().optional() })).optional(),
-});
+export { errorResponseSchema } from '../../shared/http/error-schema.js';
 
 export type RegisterBody = z.infer<typeof registerBodySchema>;
 export type LoginBody = z.infer<typeof loginBodySchema>;

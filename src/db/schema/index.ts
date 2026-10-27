@@ -2,3 +2,4 @@
 export * from './users.js';
 export * from './refresh-tokens.js';
 export * from './outbox.js';
+export * from './categories.js';
