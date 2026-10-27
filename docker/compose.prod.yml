@@ -6,4 +6,5 @@ include:
   - path: [redis/compose.yml]
   - path: [elasticsearch/compose.yml, elasticsearch/compose.prod.yml]
   - path: [app/compose.yml, app/compose.prod.yml]
+  - path: [worker/compose.yml, worker/compose.prod.yml]
   - path: [nginx/compose.yml, nginx/compose.prod.yml]

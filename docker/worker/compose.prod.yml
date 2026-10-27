@@ -1,0 +1,6 @@
+services:
+  worker:
+    build:
+      target: prod
+    env_file: ../env/.env.prod
+    command: ["node", "dist/jobs/worker.js"]

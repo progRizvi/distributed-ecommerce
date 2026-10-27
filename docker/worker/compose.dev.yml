@@ -1,0 +1,8 @@
+services:
+  worker:
+    build:
+      target: dev
+    env_file: ../env/.env.dev
+    command: ["pnpm", "worker"]
+    volumes:
+      - ../../src:/app/src

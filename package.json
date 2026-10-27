@@ -17,6 +17,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:studio": "drizzle-kit studio",
     "bloom:rebuild": "tsx --env-file-if-exists=.env scripts/rebuild-email-bloom.ts",
+    "worker": "tsx watch --env-file-if-exists=.env src/jobs/worker.ts",
+    "worker:start": "node --env-file-if-exists=.env dist/jobs/worker.js",
     "seed": "tsx --env-file-if-exists=.env src/db/seeds/run.ts",
     "docker:dev": "docker compose --env-file docker/env/.env.dev -f docker/compose.dev.yml up -d",
     "docker:prod": "docker compose --env-file docker/env/.env.prod -f docker/compose.prod.yml up -d"
@@ -30,6 +32,7 @@
     "@fastify/swagger": "^9.9.2",
     "@fastify/swagger-ui": "^6.1.2",
     "@node-rs/bcrypt": "^2.0.0",
+    "bullmq": "^6.4.0",
     "drizzle-orm": "^0.45.4",
     "fastify": "^5.12.7",
     "fastify-type-provider-zod": "^7.0.0",

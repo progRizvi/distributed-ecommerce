@@ -8,4 +8,5 @@ include:
   - redis/compose.yml
   - elasticsearch/compose.yml
   - app/compose.yml
+  - worker/compose.yml
   - nginx/compose.yml

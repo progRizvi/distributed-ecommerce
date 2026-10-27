@@ -1,2 +1,4 @@
-// Background jobs (email, order processing). BullMQ + Redis comes later.
-export {};
+export * from './queue.js';
+export * from './bullmq-queue.js';
+export * from './bullmq-worker.js';
+export * from './handlers.js';

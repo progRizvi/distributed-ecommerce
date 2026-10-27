@@ -35,7 +35,9 @@ export function bloomSizing(expectedItems: number, falsePositiveRate: number): {
 export function bloomOffsets(item: string, bits: number, hashes: number): number[] {
   const digest = createHash('sha256').update(item).digest();
   const h1 = digest.readUInt32BE(0);
-  const h2 = digest.readUInt32BE(4) | 1; // odd, so positions spread out
+  // Odd, so positions spread out. ">>> 0" is needed: "|" alone returns a SIGNED 32-bit number, which can be
+  // negative, and Redis rejects negative bit offsets.
+  const h2 = (digest.readUInt32BE(4) | 1) >>> 0;
   return Array.from({ length: hashes }, (_, i) => (h1 + i * h2) % bits);
 }
 

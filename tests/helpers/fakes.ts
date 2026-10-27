@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { assertValidMail, MailError, type Mail, type Mailer } from '../../src/shared/mail/mailer.js';
 import type { SmtpMessage, SmtpTransport } from '../../src/shared/mail/smtp-mailer.js';
+import type { EnqueueOptions, JobHandlers, JobName, JobPayloads, JobQueue } from '../../src/jobs/queue.js';
 import { RedisTokenRevocations, type RevocationStore } from '../../src/modules/auth/revocations.js';
 import type { AuthRepository } from '../../src/modules/auth/auth.repository.js';
 import type { NewRefreshToken, RefreshTokenRecord } from '../../src/modules/auth/auth.types.js';
@@ -192,6 +193,39 @@ export class FakeSmtpTransport implements SmtpTransport {
   }
 
   close(): void {
+    this.closed = true;
+  }
+}
+
+// Test double for JobQueue: keeps jobs in memory. Same jobId = one job (like BullMQ).
+export class InMemoryQueue implements JobQueue {
+  readonly jobs: { name: JobName; payload: unknown; options: EnqueueOptions }[] = [];
+  closed = false;
+  private readonly ids = new Set<string>();
+  private shouldFail = false;
+
+  failNext(): void {
+    this.shouldFail = true;
+  }
+
+  async enqueue<K extends JobName>(name: K, payload: JobPayloads[K], options: EnqueueOptions = {}): Promise<void> {
+    if (this.shouldFail) {
+      this.shouldFail = false;
+      throw new Error('queue down');
+    }
+    if (options.jobId !== undefined) {
+      if (this.ids.has(options.jobId)) return;
+      this.ids.add(options.jobId);
+    }
+    this.jobs.push({ name, payload, options });
+  }
+
+  // Plays the worker: runs every stored job through its handler.
+  async runAll(handlers: JobHandlers): Promise<void> {
+    for (const job of this.jobs) await (handlers[job.name] as (payload: unknown) => Promise<void>)(job.payload);
+  }
+
+  async close(): Promise<void> {
     this.closed = true;
   }
 }

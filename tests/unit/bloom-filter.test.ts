@@ -20,6 +20,18 @@ describe('bloomSizing', () => {
 });
 
 describe('bloomOffsets', () => {
+  it('every offset is a whole number from 0 up to bits-1 (Redis rejects anything else), for many items and sizes', () => {
+    for (const bits of [1_000, 95_850_584, 2 ** 32]) {
+      for (let i = 0; i < 20_000; i += 1) {
+        for (const offset of bloomOffsets(`user${i}@example.com`, bits, 7)) {
+          if (!Number.isInteger(offset) || offset < 0 || offset >= bits) {
+            throw new Error(`bad offset ${offset} for item ${i}, bits ${bits}`);
+          }
+        }
+      }
+    }
+  });
+
   it('is deterministic, in range, and gives k positions', () => {
     const a = bloomOffsets('a@x.com', 1000, 7);
     expect(a).toEqual(bloomOffsets('a@x.com', 1000, 7));

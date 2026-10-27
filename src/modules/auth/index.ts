@@ -2,9 +2,9 @@ import type { FastifyPluginAsync } from 'fastify';
 import { redis } from '../../bootstrap/cache.js';
 import { env } from '../../bootstrap/env.js';
 import { db } from '../../db/client.js';
+import { BullMqQueue } from '../../jobs/bullmq-queue.js';
 import { BloomFilter, RedisBitStore } from '../../shared/bloom/index.js';
 import { InMemoryEventBus } from '../../shared/events/event-bus.js';
-import { createMailer } from '../../shared/mail/create-mailer.js';
 import { durationToSeconds } from '../../shared/utils/duration.js';
 import { DrizzleUsersRepository } from '../users/users.repository.js';
 import { UsersService } from '../users/users.service.js';
@@ -40,14 +40,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   });
   const events = new InMemoryEventBus((error, event) => app.log.error({ err: error, event }, 'event handler failed'));
   // The strategy is picked from config; auth only sees the Mailer interface.
-  const mailer = createMailer(
-    { driver: env.MAIL_DRIVER, smtpUrl: env.SMTP_URL, from: env.MAIL_FROM },
-    { log: (message) => app.log.info(message) },
-  );
-  registerAuthListeners(events, mailer);
-  // Close SMTP connections on shutdown (Fastify runs this hook when the server closes).
+  // The web server only puts jobs in the queue. Mails are sent by the worker process (pnpm worker).
+  const queue = new BullMqQueue(env.REDIS_URL, {
+    onError: (error) => app.log.warn({ err: error }, 'job queue error'),
+  });
+  registerAuthListeners(events, queue);
   app.addHook('onClose', async () => {
-    await mailer.close?.();
+    await queue.close();
   });
   const service = new AuthService({
     users,
